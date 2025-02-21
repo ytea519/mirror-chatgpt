@@ -98,7 +98,7 @@ def test_cookies():
     cf_session = CloudflareSession()
 
     # 使用代理（可选）
-    proxy = os.getenv("PROXY", None)
+    proxy = os.getenv("PROXY", "http://127.0.0.1:7890")
 
     result = cf_session.get_cloudflare_cookies(
         url="https://chatgpt.com",

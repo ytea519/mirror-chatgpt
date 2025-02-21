@@ -41,7 +41,7 @@ def modify_response_body(response, redis_util: RedisUtils) -> bytes:
             for conversation_id in conversation_ids:
                 conversation_map[conversation_id] = conversation_id
             for item in data['items']:
-                print(conversation_map.get(item['id']))
+                # print(conversation_map.get(item['id']))
                 if conversation_map.get(item['id']) is None:
                     item['title'] = '🔒'
             return json.dumps(data).encode()

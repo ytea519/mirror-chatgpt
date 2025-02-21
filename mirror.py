@@ -3,10 +3,13 @@ import logging
 import os
 import re
 import ssl
+import time
 import traceback
 from urllib.parse import urlparse
-import cloudscraper
+from urllib.request import Request
 
+import cloudscraper
+import requests
 
 # import requests
 import yaml
@@ -127,6 +130,7 @@ def api_share():
     # 生成share_token
     share_token = access_to_share(share)
 
+
     # 检查原有用户信息,如果存在需要删除
     former_share_token = redis_utils.get_value('user_info:' + share.user_name)
     if former_share_token is not None:
@@ -161,54 +165,118 @@ def handle_index(path: str = None):
     ))
     return response
 
+@app.get("/ces/v1/projects/oai/settings")
+async def ces_v1_projects_oai_settings():
+    return Response(status_code=200, content=json.dumps({"integrations":{"Segment.io":{"apiHost":"chatgpt.com/ces/v1","apiKey":"oai"}}}, indent=4), media_type="application/json")
+
+@app.get("/backend-api/me")
+async def get_me(request: Request):
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if len(token) == 45 or token.startswith("eyJhbGciOi"):
+        return {}
+    else:
+        me = {
+            "object": "user",
+            "id": "org-chatgpt",
+            "email": "chatgpt@openai.com",
+            "name": "ChatGPT",
+            "picture": "https://cdn.auth0.com/avatars/ai.png",
+            "created": int(time.time()),
+            "phone_number": None,
+            "mfa_flag_enabled": False,
+            "amr": [],
+            "groups": [],
+            "orgs": {
+                "object": "list",
+                "data": [
+                    {
+                        "object": "organization",
+                        "id": "org-chatgpt",
+                        "created": 1715641300,
+                        "title": "Personal",
+                        "name": "user-chatgpt",
+                        "description": "Personal org for chatgpt@openai.com",
+                        "personal": True,
+                        "settings": {
+                            "threads_ui_visibility": "NONE",
+                            "usage_dashboard_visibility": "ANY_ROLE",
+                            "disable_user_api_keys": False
+                        },
+                        "parent_org_id": None,
+                        "is_default": True,
+                        "role": "owner",
+                        "is_scale_tier_authorized_purchaser": None,
+                        "is_scim_managed": False,
+                        "projects": {
+                            "object": "list",
+                            "data": []
+                        },
+                        "groups": [],
+                        "geography": None
+                    }
+                ]
+            },
+            "has_payg_project_spend_limit": True
+        }
+    return Response(content=json.dumps(me, indent=4), media_type="application/json")
+
+
 
 @app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH'])
 def proxy(path: str):
-    access_token = request.headers.get('Authorization')
-    share_token = request.cookies.get("share_token")
-    if access_token is not None and access_token.startswith("Bearer "):
-        access_token = access_token.replace("Bearer ", "")
-    elif access_token is None and share_token is not None:
-        access_token = redis_utils.hash_get("share_token_info:" + share_token, 'access_token')
-        if access_token is None:
-            return '', 401
-    else:
-        return '', 401
-
-    source_url = build_url(request)
-    target_url = build_target_url(source_url)
-
-    headers = {
-        k: v for k, v in request.headers.items()
-        if not models.filter_header(k)
-    }
-
-    headers['Referer'] = target_url
-    headers['Origin'] = f"https://{urlparse(target_url).netloc}"
-
-    if path.endswith(".map") or path.endswith(".woff2"):
-        return '', 405
-    if need_auth(path):
-        if access_token != '':
-            headers[
-                'Authorization'] = f"Bearer {access_token}"
-            # 设置cookie
-            header_ck = 'share_token=' + share_token if share_token is not None else ''
-            global cf_cookie
-            for cf_ck in cf_cookie:
-                if cf_ck['name'] != '__cf_bm':
-                    header_ck += ';' + cf_ck['name'] + "=" + cf_ck['value']
-            headers['Cookie'] = header_ck
-        else:
-            # 重定向
-            return '', 401
-
-    # Forward the request
-    px = {
-        'http': os.getenv("PROXY", ""),
-        'https': os.getenv("PROXY", "")
-    }
     try:
+        access_token = request.headers.get('Authorization')
+        share_token = request.cookies.get("share_token")
+
+        if not access_token and not share_token:
+            return {'status': False, 'message': 'Unauthorized'}, 401
+
+        if share_token is not None:
+            access_token = redis_utils.hash_get("share_token_info:" + share_token, 'access_token')
+            if access_token is None:
+                return '', 401
+        else:
+            return '', 401
+
+        source_url = build_url(request)
+        target_url = build_target_url(source_url)
+
+        headers = {
+            k: v for k, v in request.headers.items()
+            if not models.filter_header(k)
+        }
+
+        headers['Referer'] = target_url
+        headers['Origin'] = f"https://{urlparse(target_url).netloc}"
+
+        if path.endswith(".map") or path.endswith(".woff2"):
+            return '', 405
+        if need_auth(path):
+            if access_token != '':
+                headers['Authorization'] = f"Bearer {access_token}"
+                if "ab" in path and "statsig-api-key" not in headers:
+                    headers.update({
+                        "statsig-sdk-type": "js-client",
+                        "statsig-api-key": "client-tnE5GCU2F2cTxRiMbvTczMDT1jpwIigZHsZSdqiy4u",
+                        "statsig-sdk-version": "5.1.0",
+                        "statsig-client-time": str(int(time.time() * 1000)),
+                    })
+                # 设置cookie
+                header_ck = ''
+                global cf_cookie
+                for cf_ck in cf_cookie:
+                    if cf_ck['name'] != '__cf_bm':
+                        header_ck += ';' + cf_ck['name'] + "=" + cf_ck['value']
+                headers['Cookie'] = header_ck
+            else:
+                # 重定向
+                return '', 401
+
+        # Forward the request
+        px = {
+            'http': os.getenv("PROXY", "http://127.0.0.1:7890"),
+            'https': os.getenv("PROXY", "http://127.0.0.1:7890")
+        }
         resp = scraper.request(
             method=request.method,
             url=target_url,
@@ -217,65 +285,76 @@ def proxy(path: str):
             stream=True if path == 'backend-api/conversation' else False,  # 只在会话API时使用流式传输
             allow_redirects=False,
             proxies=px
-
-        )
-        print(headers)
-    except scraper.RequestException as e:
-        traceback.print_exc()
-        return str(e), 500
-
-    share_token = request.cookies.get("share_token")
-    username = redis_utils.hash_get("share_token_info:" + share_token, 'user_name') if share_token is not None else ''
-    # conversation 接口采取流式输出
-    if path == 'backend-api/conversation':
-        data = stream_response(username, resp, redis_utils)
-        # 使用正则表达式匹配具有特定格式的 JSON
-        json_pattern = re.compile(r'{"type": "conversation_detail_metadata".*?}')
-
-        # 查找匹配的 JSON
-        match = json_pattern.search(str(data.get_data()))
-        if match:
-            json_str = match.group(0)
-            try:
-                json_data = json.loads(json_str)
-                # 这里处理找到的 JSON 数据
-                # 可以访问具体字段
-                conversation_id = json_data.get('conversation_id')
-                # redis_utils.set_value(f'conversation_metadata:{conversation_id}', json_data)
-                redis_utils.set_add('user_conversations:' + username, conversation_id)
-            except json.JSONDecodeError:
-                pass
-        return data
-    if path.startswith('backend-api/conversation/') and path.find('init') == -1:
-        cur_conversation = path.split("/")[2]
-        cur_user_conversations = redis_utils.set_members('user_conversations:' + username)
-        # 判断cur_conversation是否在用户对话列表中
-        if cur_user_conversations is None or cur_conversation not in cur_user_conversations:
-            return '', 401
-
-    # 处理响应
-    response_headers = {}
-    for header in ['Content-Type', 'Cache-Control', 'Expires']:
-        if header in resp.headers:
-            response_headers[header] = resp.headers[header]
-
-    # 对于静态文件和需要处理的响应
-    if body_need_handle(target_url):
-        modified_content = modify_response_body(resp, redis_utils)
-        response = Response(
-            response=modified_content,
-            status=resp.status_code,
-            headers=response_headers
-        )
-    else:
-        # 对于其他请求，直接返回原始响应
-        response = Response(
-            response=resp.content,
-            status=resp.status_code,
-            headers=response_headers
         )
 
-    return response
+        share_token = request.cookies.get("share_token")
+        username = redis_utils.hash_get("share_token_info:" + share_token,
+                                        'user_name') if share_token is not None else ''
+        # conversation 接口采取流式输出
+        if path == 'backend-api/conversation':
+            data = stream_response(username, resp, redis_utils)
+            # 使用正则表达式匹配具有特定格式的 JSON
+            json_pattern = re.compile(r'{"type": "conversation_detail_metadata".*?}')
+
+            # 查找匹配的 JSON
+            match = json_pattern.search(str(data.get_data()))
+            if match:
+                json_str = match.group(0)
+                try:
+                    json_data = json.loads(json_str)
+                    # 这里处理找到的 JSON 数据
+                    # 可以访问具体字段
+                    conversation_id = json_data.get('conversation_id')
+                    # redis_utils.set_value(f'conversation_metadata:{conversation_id}', json_data)
+                    redis_utils.set_add('user_conversations:' + username, conversation_id)
+                except json.JSONDecodeError:
+                    pass
+            return data
+        if path.startswith('backend-api/conversation/') and path.find('init') == -1:
+            cur_conversation = path.split("/")[2]
+            cur_user_conversations = redis_utils.set_members('user_conversations:' + username)
+            # 判断cur_conversation是否在用户对话列表中
+            if cur_user_conversations is None or cur_conversation not in cur_user_conversations:
+                return '', 401
+
+        # 处理响应
+        response_headers = {}
+        for header in ['Content-Type', 'Cache-Control', 'Expires']:
+            if header in resp.headers:
+                response_headers[header] = resp.headers[header]
+
+        # 对于静态文件和需要处理的响应
+        if body_need_handle(target_url):
+            modified_content = modify_response_body(resp, redis_utils)
+            response = Response(
+                response=modified_content,
+                status=resp.status_code,
+                headers=response_headers
+            )
+        else:
+            # 对于其他请求，直接返回原始响应
+            response = Response(
+                response=resp.content,
+                status=resp.status_code,
+                headers=response_headers
+            )
+        return response
+
+    except Exception as e:
+        logging.error(f"Proxy error: {str(e)}")
+        logging.error(traceback.format_exc())
+        return {'status': False, 'message': 'Internal server error'}, 500
+
+
+@app.errorhandler(Exception)
+def handle_error(error):
+    logging.error(f"Error occurred: {str(error)}")
+    logging.error(traceback.format_exc())
+    return {
+        'status': False,
+        'message': str(error),
+        'error_type': error.__class__.__name__
+    }, getattr(error, 'code', 500)
 
 
 def main():
