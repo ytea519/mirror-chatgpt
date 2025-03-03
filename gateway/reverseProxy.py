@@ -2,7 +2,7 @@ import json
 import random
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from fastapi import Request, HTTPException
 from fastapi.responses import StreamingResponse, Response
@@ -13,7 +13,8 @@ from chatgpt.authorization import verify_token, get_req_token
 from chatgpt.fp import get_fp
 from utils.Client import Client
 from utils.Logger import logger
-from utils.configs import chatgpt_base_url_list, sentinel_proxy_url_list, force_no_history, file_host, voice_host
+from utils.configs import chatgpt_base_url_list, sentinel_proxy_url_list, force_no_history, file_host, voice_host, \
+    redis_utils, is_true
 
 
 def generate_current_time():
@@ -76,7 +77,7 @@ headers_reject_list = [
 
 async def get_real_req_token(token):
     req_token = get_req_token(token)
-    if len(req_token) == 45 or req_token.startswith("eyJhbGciOi"):
+    if req_token.startswith("eyJhbGciOi"):
         return req_token
     else:
         req_token = get_req_token(None, token)
@@ -108,12 +109,16 @@ def save_conversation(token, conversation_id, title=None):
         logger.info(f"Conversation ID: {conversation_id}, Title: {title}")
 
 
-async def content_generator(r, token, history=True):
+async def content_generator(r, token, history=True, request: Request = None):
     conversation_id = None
-    title = None
+    model = None
+    share_token = request.cookies.get("share_token")
+    gpt_reset_every_day = redis_utils.hash_get('share_token_info:' + share_token, 'gpt_reset_every_day')
+    username = redis_utils.get_username(request)
+
     async for chunk in r.aiter_content():
         try:
-            if history and (len(token) != 45 and not token.startswith("eyJhbGciOi")) and (not conversation_id or not title):
+            if history and (not conversation_id or not model):
                 chat_chunk = chunk.decode('utf-8')
                 if chat_chunk.startswith("data: {"):
                     if "\n\nevent: delta" in chat_chunk:
@@ -126,15 +131,37 @@ async def content_generator(r, token, history=True):
                         chunk_data = chat_chunk[6:]
                     chunk_data = chunk_data.strip()
                     if conversation_id is None:
-                        conversation_id = json.loads(chunk_data).get("conversation_id")
-                        save_conversation(token, conversation_id)
-                        title = globals.conversation_map[conversation_id].get("title")
-                    if title is None:
-                        if "title" in chunk_data:
-                            pass
-                        title = json.loads(chunk_data).get("title")
-                    if title:
-                        save_conversation(token, conversation_id, title)
+                        chunk_json = json.loads(chunk_data)
+                        conversation_id = chunk_json.get("conversation_id")
+                        if conversation_id is not None:
+                            redis_utils.set_add('user_conversations:' + username, conversation_id)
+                    if model is None:
+                        chunk_json = json.loads(chunk_data)
+                        model = chunk_json.get("message").get("metadata").get("model_slug")
+                        if model is not None:
+                            model_usage = redis_utils.hash_get("usage:" + username, model)
+                            real_usage = 0 if model_usage is None else int(model_usage)
+                            if is_true(gpt_reset_every_day):
+                                redis_utils.hash_set("usage:" + username, {model: real_usage + 1})
+                            else:
+                                # 计算到第二天0点的秒数
+                                now = datetime.now()
+                                tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                                expire_seconds = int((tomorrow - now).total_seconds())
+                                redis_utils.hash_set("usage:" + username, {model: real_usage + 1},
+                                                     expire_seconds=expire_seconds)
+                    # if conversation_id is not None:
+
+                    # save_conversation(token, conversation_id)
+                    # title = globals.conversation_map[conversation_id].get("title")
+                    # if title is None:
+                    #     if "title" in chunk_data:
+                    #         pass
+                    #     title = json.loads(chunk_data).get("title")
+                    # if title:
+                    #
+                    #     save_conversation(token, conversation_id, title)
+
         except Exception as e:
             # logger.error(e)
             # logger.error(chunk.decode('utf-8'))
@@ -172,7 +199,7 @@ async def chatgpt_reverse_proxy(request: Request, path: str):
         if "v1/" in path:
             base_url = "https://ab.chatgpt.com"
 
-        token = request.cookies.get("token", "")
+        token = request.cookies.get("share_token", "")
         req_token = await get_real_req_token(token)
         fp = get_fp(req_token).copy()
         proxy_url = fp.pop("proxy_url", None)
@@ -196,7 +223,8 @@ async def chatgpt_reverse_proxy(request: Request, path: str):
                     "statsig-client-time": int(time.time() * 1000),
                 })
 
-        token = headers.get("authorization", "").replace("Bearer ", "")
+        token = redis_utils.hash_get('share_token_info:' + request.cookies.get("share_token", "access_token"),
+                                     'access_token')
         if token:
             req_token = await get_real_req_token(token)
             access_token = await verify_token(req_token)
@@ -208,6 +236,87 @@ async def chatgpt_reverse_proxy(request: Request, path: str):
         if path.endswith("backend-api/conversation"):
             try:
                 req_json = json.loads(data)
+                model = req_json.get("model")
+                if model:
+                    # 从redis获取用户名和token信息
+                    share_token = request.cookies.get("share_token", "")
+                    username = redis_utils.get_username(request)
+
+                    # 获取该用户的使用量和限额
+                    usage = redis_utils.hash_get("usage:" + username) or {}
+                    current_usage = int(usage.get(model, 0))
+
+                    # 获取用户限额信息
+                    share_info = redis_utils.hash_get('share_token_info:' + share_token)
+
+                    # 根据不同模型判断限额
+                    limit = int(share_info.get(model.replace("-", "_") + '_limit', -1))
+
+                    # 检查是否达到限额
+                    if limit != -1 and current_usage >= limit:
+                        async def limit_message_generator():
+                            current_time = datetime.now(timezone.utc).isoformat(timespec='microseconds').replace(
+                                '+00:00', 'Z')
+                            conversation_id = str(uuid.uuid4())
+                            parent_message_id = str(uuid.uuid4())
+                            message_id = str(uuid.uuid4())
+
+                            # 第一条消息，包含conversation_id等基本信息
+                            first_message = {
+                                "conversation_id": conversation_id,
+                                "message": {
+                                    "id": message_id,
+                                    "author": {"role": "assistant"},
+                                    "create_time": current_time,
+                                    "content": {
+                                        "content_type": "text",
+                                        "parts": [f"您已达到{model}模型的预设使用限额，请尝试使用其他模型"]
+                                    },
+                                    "status": "finished_successfully",
+                                    "end_turn": None,
+                                    "weight": 1.0,
+                                    "metadata": {"model_slug": model},
+                                    "recipient": "all"
+                                },
+                                "parent_message_id": parent_message_id
+                            }
+                            yield f"data: {json.dumps(first_message)}\n\n"
+
+                            # 第二条消息，表示会话结束
+                            final_message = {
+                                "conversation_id": conversation_id,
+                                "message": {
+                                    "id": message_id,
+                                    "author": {"role": "assistant"},
+                                    "create_time": current_time,
+                                    "content": {
+                                        "content_type": "text",
+                                        "parts": [f"您已达到{model}模型的预设使用限额，请尝试使用其他模型"]
+                                    },
+                                    "status": "finished_successfully",
+                                    "end_turn": True,
+                                    "weight": 1.0,
+                                    "metadata": {"model_slug": model},
+                                    "recipient": "all"
+                                },
+                                "parent_message_id": parent_message_id
+                            }
+                            yield f"data: {json.dumps(final_message)}\n\n"
+                            yield "data: [DONE]\n\n"
+
+                        return StreamingResponse(
+                            content=limit_message_generator(),
+                            media_type="text/event-stream",
+                            headers={"Content-Type": "text/event-stream"}
+                        )
+
+                        logger.info(f"用户 {username} 使用 {model} 模型,当前使用量: {current_usage}/{limit}")
+            except Exception as e:
+                logger.error(f"检查模型使用限额失败: {str(e)}")
+                if isinstance(e, HTTPException):
+                    raise e
+
+            try:
                 history = not req_json.get("history_and_training_disabled", False)
             except Exception:
                 pass
@@ -217,13 +326,13 @@ async def chatgpt_reverse_proxy(request: Request, path: str):
                 req_json["history_and_training_disabled"] = True
                 data = json.dumps(req_json).encode("utf-8")
 
-
         if sentinel_proxy_url_list and "backend-api/sentinel/chat-requirements" in path:
             client = Client(proxy=random.choice(sentinel_proxy_url_list))
         else:
             client = Client(proxy=proxy_url, impersonate=impersonate)
         try:
             background = BackgroundTask(client.close)
+
             r = await client.request(request.method, f"{base_url}/{path}", params=params, headers=headers,
                                      cookies=request_cookies, data=data, stream=True, allow_redirects=False)
             if r.status_code == 307 or r.status_code == 302 or r.status_code == 301:
@@ -238,15 +347,21 @@ async def chatgpt_reverse_proxy(request: Request, path: str):
                 logger.info(f"Request proxy: {proxy_url}")
                 logger.info(f"Request UA: {user_agent}")
                 logger.info(f"Request impersonate: {impersonate}")
+                logger.info(f"Request Body: {data}")
+                # 获取请求中的模型信息
+
                 conv_key = r.cookies.get("conv_key", "")
-                response = StreamingResponse(content_generator(r, token, history), media_type=r.headers.get("content-type", ""),
-                                  background=background)
+                response = StreamingResponse(content_generator(r, token, history, request),
+                                             media_type=r.headers.get("content-type", ""),
+                                             background=background)
                 response.set_cookie("conv_key", value=conv_key)
                 return response
-            elif 'image' in r.headers.get("content-type", "") or "audio" in r.headers.get("content-type", "") or "video" in r.headers.get("content-type", ""):
+            elif 'image' in r.headers.get("content-type", "") or "audio" in r.headers.get("content-type",
+                                                                                          "") or "video" in r.headers.get(
+                "content-type", ""):
                 rheaders = dict(r.headers)
                 response = Response(content=await r.acontent(), headers=rheaders,
-                                        status_code=r.status_code, background=background)
+                                    status_code=r.status_code, background=background)
                 return response
             else:
                 if "/backend-api/conversation" in path or "/register-websocket" in path:
@@ -259,7 +374,8 @@ async def chatgpt_reverse_proxy(request: Request, path: str):
                                    .replace("https://ab.chatgpt.com", f"{petrol}://{origin_host}")
                                    .replace("https://cdn.oaistatic.com", f"{petrol}://{origin_host}")
                                    .replace("webrtc.chatgpt.com", voice_host if voice_host else "webrtc.chatgpt.com")
-                                   .replace("files.oaiusercontent.com", file_host if file_host else "files.oaiusercontent.com")
+                                   .replace("files.oaiusercontent.com",
+                                            file_host if file_host else "files.oaiusercontent.com")
                                    .replace("chatgpt.com/ces", f"{origin_host}/ces")
                                    )
                     else:
@@ -267,7 +383,8 @@ async def chatgpt_reverse_proxy(request: Request, path: str):
                                    .replace("https://ab.chatgpt.com", f"{petrol}://{origin_host}")
                                    .replace("https://cdn.oaistatic.com", f"{petrol}://{origin_host}")
                                    .replace("webrtc.chatgpt.com", voice_host if voice_host else "webrtc.chatgpt.com")
-                                   .replace("files.oaiusercontent.com", file_host if file_host else "files.oaiusercontent.com")
+                                   .replace("files.oaiusercontent.com",
+                                            file_host if file_host else "files.oaiusercontent.com")
                                    .replace("https://chatgpt.com", f"{petrol}://{origin_host}")
                                    .replace("chatgpt.com/ces", f"{origin_host}/ces")
                                    )

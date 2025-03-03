@@ -1,33 +1,15 @@
-"""
-配置模块：负责加载和管理应用程序的所有环境变量配置
-主要功能：
-1. 从.env文件加载环境变量
-2. 处理各种配置参数
-3. 提供配置验证和转换功能
-"""
-
 import ast
 import os
 
 from dotenv import load_dotenv
 
 from utils.Logger import logger
+from utils.redis_util import RedisUtils
 
-# 加载.env文件中的环境变量，使用ASCII编码
 load_dotenv(encoding="ascii")
 
 
 def is_true(x):
-    """
-    判断输入值是否为真值
-    支持布尔值、字符串、整数等多种输入类型
-    
-    Args:
-        x: 输入值，可以是bool、str、int等类型
-    
-    Returns:
-        bool: 真值判断结果
-    """
     if isinstance(x, bool):
         return x
     if isinstance(x, str):
@@ -37,51 +19,46 @@ def is_true(x):
     else:
         return False
 
-# API相关配置
-api_prefix = os.getenv('API_PREFIX', None)  # API前缀
-authorization = os.getenv('AUTHORIZATION', '').replace(' ', '')  # 授权令牌
-chatgpt_base_url = os.getenv('CHATGPT_BASE_URL', 'https://chatgpt.com').replace(' ', '')  # ChatGPT基础URL
-auth_key = os.getenv('AUTH_KEY', None)  # 认证密钥
-x_sign = os.getenv('X_SIGN', None)  # 签名密钥
 
-# Arkose相关配置
+api_prefix = os.getenv('API_PREFIX', None)
+authorization = os.getenv('AUTHORIZATION', '').replace(' ', '')
+chatgpt_base_url = os.getenv('CHATGPT_BASE_URL', 'https://chatgpt.com').replace(' ', '')
+auth_key = os.getenv('AUTH_KEY', None)
+x_sign = os.getenv('X_SIGN', None)
+
 ark0se_token_url = os.getenv('ARK' + 'OSE_TOKEN_URL', '').replace(' ', '')
 if not ark0se_token_url:
     ark0se_token_url = os.getenv('ARK0SE_TOKEN_URL', None)
+proxy_url = os.getenv('PROXY_URL', '').replace(' ', '')
+sentinel_proxy_url = os.getenv('SENTINEL_PROXY_URL', None)
+export_proxy_url = os.getenv('EXPORT_PROXY_URL', None)
+file_host = os.getenv('FILE_HOST', None)
+voice_host = os.getenv('VOICE_HOST', None)
+impersonate_list_str = os.getenv('IMPERSONATE', '[]')
+user_agents_list_str = os.getenv('USER_AGENTS', '[]')
+device_tuple_str = os.getenv('DEVICE_TUPLE', '()')
+browser_tuple_str = os.getenv('BROWSER_TUPLE', '()')
+platform_tuple_str = os.getenv('PLATFORM_TUPLE', '()')
 
-# 代理配置
-proxy_url = os.getenv('PROXY_URL', '').replace(' ', '')  # 普通代理URL
-sentinel_proxy_url = os.getenv('SENTINEL_PROXY_URL', None)  # Sentinel代理URL
-export_proxy_url = os.getenv('EXPORT_PROXY_URL', None)  # 导出代理URL
+cf_file_url = os.getenv('CF_FILE_URL', None)
+turnstile_solver_url = os.getenv('TURNSTILE_SOLVER_URL', None)
 
-# 资源主机配置
-file_host = os.getenv('FILE_HOST', None)  # 文件服务器主机
-voice_host = os.getenv('VOICE_HOST', None)  # 语音服务器主机
+history_disabled = is_true(os.getenv('HISTORY_DISABLED', True))
+pow_difficulty = os.getenv('POW_DIFFICULTY', '000032')
+retry_times = int(os.getenv('RETRY_TIMES', 3))
+conversation_only = is_true(os.getenv('CONVERSATION_ONLY', False))
+enable_limit = is_true(os.getenv('ENABLE_LIMIT', True))
+upload_by_url = is_true(os.getenv('UPLOAD_BY_URL', False))
+check_model = is_true(os.getenv('CHECK_MODEL', False))
+scheduled_refresh = is_true(os.getenv('SCHEDULED_REFRESH', False))
+random_token = is_true(os.getenv('RANDOM_TOKEN', True))
+oai_language = os.getenv('OAI_LANGUAGE', 'zh-CN')
 
-# 用户代理和模拟配置
-impersonate_list_str = os.getenv('IMPERSONATE', '[]')  # 模拟用户列表
-user_agents_list_str = os.getenv('USER_AGENTS', '[]')  # User-Agent列表
-device_tuple_str = os.getenv('DEVICE_TUPLE', '()')  # 设备信息元组
-browser_tuple_str = os.getenv('BROWSER_TUPLE', '()')  # 浏览器信息元组
-platform_tuple_str = os.getenv('PLATFORM_TUPLE', '()')  # 平台信息元组
+redis_utils = RedisUtils(
+    host=os.getenv('REDIS_HOST', '127.0.0.1'),
+    port=int(os.getenv('REDIS_PORT', 6379))
+)
 
-# Cloudflare相关配置
-cf_file_url = os.getenv('CF_FILE_URL', None)  # Cloudflare文件URL
-turnstile_solver_url = os.getenv('TURNSTILE_SOLVER_URL', None)  # Turnstile求解器URL
-
-# 功能开关配置
-history_disabled = is_true(os.getenv('HISTORY_DISABLED', True))  # 是否禁用历史记录
-pow_difficulty = os.getenv('POW_DIFFICULTY', '000032')  # PoW难度
-retry_times = int(os.getenv('RETRY_TIMES', 3))  # 重试次数
-conversation_only = is_true(os.getenv('CONVERSATION_ONLY', False))  # 是否仅支持对话
-enable_limit = is_true(os.getenv('ENABLE_LIMIT', True))  # 是否启用限制
-upload_by_url = is_true(os.getenv('UPLOAD_BY_URL', False))  # 是否通过URL上传
-check_model = is_true(os.getenv('CHECK_MODEL', False))  # 是否检查模型
-scheduled_refresh = is_true(os.getenv('SCHEDULED_REFRESH', False))  # 是否启用定时刷新
-random_token = is_true(os.getenv('RANDOM_TOKEN', True))  # 是否使用随机令牌
-oai_language = os.getenv('OAI_LANGUAGE', 'zh-CN')  # OpenAI语言设置
-
-# 将字符串配置转换为列表/元组
 authorization_list = authorization.split(',') if authorization else []
 chatgpt_base_url_list = chatgpt_base_url.split(',') if chatgpt_base_url else []
 ark0se_token_url_list = ark0se_token_url.split(',') if ark0se_token_url else []
@@ -93,19 +70,13 @@ device_tuple = ast.literal_eval(device_tuple_str)
 browser_tuple = ast.literal_eval(browser_tuple_str)
 platform_tuple = ast.literal_eval(platform_tuple_str)
 
-# 网关相关配置
-enable_gateway = is_true(os.getenv('ENABLE_GATEWAY', False))  # 是否启用网关
-auto_seed = is_true(os.getenv('AUTO_SEED', True))  # 是否自动生成种子
-force_no_history = is_true(os.getenv('FORCE_NO_HISTORY', False))  # 是否强制禁用历史记录
-no_sentinel = is_true(os.getenv('NO_SENTINEL', False))  # 是否禁用Sentinel
+enable_gateway = is_true(os.getenv('ENABLE_GATEWAY', True))
+auto_seed = is_true(os.getenv('AUTO_SEED', True))
+force_no_history = is_true(os.getenv('FORCE_NO_HISTORY', False))
+no_sentinel = is_true(os.getenv('NO_SENTINEL', False))
 
-# 读取版本信息
-with open('version.txt') as f:
-    version = f.read().strip()
-
-# 输出配置信息日志
 logger.info("-" * 60)
-logger.info(f"Chat2Api {version} | https://github.com/lanqian528/chat2api")
+logger.info(f"Chat2Api v0.0.1 | https://github.com/Kylsky")
 logger.info("-" * 60)
 logger.info("Environment variables:")
 logger.info("------------------------- Security -------------------------")

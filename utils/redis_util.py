@@ -1,7 +1,7 @@
 import redis
 from typing import Any, Optional, List, Dict, Union
 import json
-from datetime import datetime, timedelta
+from fastapi import Request
 
 class RedisUtils:
     def __init__(self, host: str = 'localhost', port: int = 6379, db: int = 0,
@@ -107,13 +107,14 @@ class RedisUtils:
             print(f"Error incrementing value: {str(e)}")
             return None
 
-    def hash_set(self, name: str, mapping: Dict[str, Any]) -> bool:
+    def hash_set(self, name: str, mapping: Dict[str, Any], expire_seconds: Optional[int] = None) -> bool:
         """
         设置哈希表的多个字段
 
         Args:
             name: 哈希表名
             mapping: 字段映射字典
+            expire_seconds: 过期时间（秒）
 
         Returns:
             bool: 操作是否成功
@@ -125,6 +126,8 @@ class RedisUtils:
                 for k, v in mapping.items()
             }
             self.redis_client.hmset(name, processed_mapping)
+            if expire_seconds:
+                self.redis_client.expire(name, expire_seconds)
             return True
         except Exception as e:
             print(f"Error setting hash: {str(e)}")
@@ -157,7 +160,7 @@ class RedisUtils:
             print(f"Error getting hash: {str(e)}")
             return None
 
-    def list_push(self, name: str, *values: Any, left: bool = True) -> Optional[int]:
+    def list_push(self, name: str, *values: Any, left: bool = True, expire_seconds: Optional[int] = None) -> Optional[int]:
         """
         向列表添加元素
 
@@ -165,6 +168,7 @@ class RedisUtils:
             name: 列表名
             values: 要添加的值
             left: 是否从左侧添加
+            expire_seconds: 过期时间（秒）
 
         Returns:
             Optional[int]: 添加后的列表长度
@@ -176,9 +180,15 @@ class RedisUtils:
                 for v in values
             ]
 
+            result = None
             if left:
-                return self.redis_client.lpush(name, *processed_values)
-            return self.redis_client.rpush(name, *processed_values)
+                result = self.redis_client.lpush(name, *processed_values)
+            else:
+                result = self.redis_client.rpush(name, *processed_values)
+                
+            if expire_seconds:
+                self.redis_client.expire(name, expire_seconds)
+            return result
         except Exception as e:
             print(f"Error pushing to list: {str(e)}")
             return None
@@ -200,13 +210,14 @@ class RedisUtils:
             print(f"Error getting list: {str(e)}")
             return []
 
-    def set_add(self, name: str, *values: Any) -> Optional[int]:
+    def set_add(self, name: str, *values: Any, expire_seconds: Optional[int] = None) -> Optional[int]:
         """
         向集合添加元素
 
         Args:
             name: 集合名
             values: 要添加的值
+            expire_seconds: 过期时间（秒）
 
         Returns:
             Optional[int]: 新添加的元素数量
@@ -216,7 +227,10 @@ class RedisUtils:
                 json.dumps(v) if not isinstance(v, (str, int, float, bool)) else v
                 for v in values
             ]
-            return self.redis_client.sadd(name, *processed_values)
+            result = self.redis_client.sadd(name, *processed_values)
+            if expire_seconds:
+                self.redis_client.expire(name, expire_seconds)
+            return result
         except Exception as e:
             print(f"Error adding to set: {str(e)}")
             return None
@@ -254,6 +268,12 @@ class RedisUtils:
             return json.loads(value)
         except (json.JSONDecodeError, TypeError):
             return value
+
+    def get_username(self, request: Request):
+        share_token = request.cookies.get("share_token", "")
+        username = self.hash_get("share_token_info:" + share_token, 'username') if share_token is not None else ''
+        username = share_token if username is None or username == '' else username
+        return username
 
     def close(self):
         """关闭 Redis 连接"""

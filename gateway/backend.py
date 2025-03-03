@@ -10,16 +10,16 @@ from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 import utils.globals as globals
-from mirror import app
+from app import app
 from chatgpt.authorization import verify_token
 from chatgpt.fp import get_fp
 from chatgpt.proofofWork import get_answer_token, get_config, get_requirements_token
-from api.chatgpt import chatgpt_html
-from api.reverseProxy import chatgpt_reverse_proxy, content_generator, get_real_req_token, headers_reject_list
+from gateway.chatgpt import chatgpt_html
+from gateway.reverseProxy import chatgpt_reverse_proxy, content_generator, get_real_req_token, headers_reject_list
 from utils.Client import Client
 from utils.Logger import logger
 from utils.configs import x_sign, turnstile_solver_url, chatgpt_base_url_list, no_sentinel, sentinel_proxy_url_list, \
-    force_no_history
+    force_no_history, redis_utils, is_true
 
 banned_paths = [
     "backend-api/accounts/logout_all",
@@ -37,148 +37,155 @@ banned_paths = [
 redirect_paths = ["auth/logout"]
 chatgpt_paths = ["c/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"]
 
-# 账号信息
+
 @app.get("/backend-api/accounts/check/v4-2023-04-27")
 async def check_account(request: Request):
-    token = request.headers.get("Authorization").replace("Bearer ", "")
     check_account_response = await chatgpt_reverse_proxy(request, "backend-api/accounts/check/v4-2023-04-27")
-    if len(token) == 45 or token.startswith("eyJhbGciOi"):
-        return check_account_response
-    else:
-        check_account_str = check_account_response.body.decode('utf-8')
-        check_account_info = json.loads(check_account_str)
-        for key in check_account_info.get("accounts", {}).keys():
-            account_id = check_account_info["accounts"][key]["account"]["account_id"]
-            globals.seed_map[token]["user_id"] = \
-                check_account_info["accounts"][key]["account"]["account_user_id"].split("__")[0]
-            check_account_info["accounts"][key]["account"]["account_user_id"] = f"user-chatgpt__{account_id}"
-        with open(globals.SEED_MAP_FILE, "w", encoding="utf-8") as f:
-            json.dump(globals.seed_map, f, indent=4)
-        return check_account_info
+    # check_account_str = check_account_response.body.decode('utf-8')
+    # check_account_info = json.loads(check_account_str)
+    # for key in check_account_info.get("accounts", {}).keys():
+    #     account_id = check_account_info["accounts"][key]["account"]["account_id"]
+    #     globals.seed_map[token]["user_id"] = \
+    #         check_account_info["accounts"][key]["account"]["account_user_id"].split("__")[0]
+    #     check_account_info["accounts"][key]["account"]["account_user_id"] = f"user-chatgpt__{account_id}"
+    # with open(globals.SEED_MAP_FILE, "w", encoding="utf-8") as f:
+    #     json.dump(globals.seed_map, f, indent=4)
+    # return check_account_info
+    return check_account_response
 
-# GPTs初始化
+@app.post("/backend-api/gizmos/snorlax/upsert")
+async def get_gizmos_upsert(request: Request):
+    response = await chatgpt_reverse_proxy(request, "backend-api/gizmos/snorlax/upsert")
+    if response.status_code == 200:
+        gizmo_id = json.loads(response.body).get('resource').get('gizmo').get('id')
+        # 获取用户
+        username = redis_utils.get_username(request)
+        redis_utils.set_add("user_gizmo_project:" + username, gizmo_id)
+    return response
+
+@app.get("/backend-api/gizmos/snorlax/sidebar")
+async def get_gizmos_sidebar(request: Request):
+    response = await chatgpt_reverse_proxy(request, "backend-api/gizmos/snorlax/sidebar")
+    gizmo_projects = redis_utils.set_members("user_gizmo_project:" + redis_utils.get_username(request))
+    if response.status_code == 200:
+        response_json = json.loads(response.body)
+        items = response_json.get('items')
+        filtered_items = [item for item in items if item.get('gizmo').get('gizmo').get('id') in gizmo_projects]
+        response_json['items'] = filtered_items
+        return Response(
+            content=json.dumps(response_json),
+            media_type="application/json",
+            status_code=200
+        )
+    return response
+
 @app.get("/backend-api/gizmos/bootstrap")
 async def get_gizmos_bootstrap(request: Request):
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if len(token) == 45 or token.startswith("eyJhbGciOi"):
-        return await chatgpt_reverse_proxy(request, "backend-api/gizmos/bootstrap")
-    else:
-        return {"gizmos": []}
+    # return {"gizmos": []}
+    return await chatgpt_reverse_proxy(request, "backend-api/gizmos/bootstrap")
 
-# 置顶的GPTs
+
 @app.get("/backend-api/gizmos/pinned")
 async def get_gizmos_pinned(request: Request):
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if len(token) == 45 or token.startswith("eyJhbGciOi"):
-        return await chatgpt_reverse_proxy(request, "backend-api/gizmos/pinned")
-    else:
-        return {"items": [], "cursor": None}
+    # return {"items": [], "cursor": None}
+    return await chatgpt_reverse_proxy(request, "backend-api/gizmos/pinned")
 
-# 最近使用的GPTs
+
 @app.get("/public-api/gizmos/discovery/recent")
 async def get_gizmos_discovery_recent(request: Request):
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if len(token) == 45 or token.startswith("eyJhbGciOi"):
-        return await chatgpt_reverse_proxy(request, "public-api/gizmos/discovery/recent")
-    else:
-        return {
-            "info": {
-                "id": "recent",
-                "title": "Recently Used",
-            },
-            "list": {
-                "items": [],
-                "cursor": None
-            }
-        }
+    # return {
+    #     "info": {
+    #         "id": "recent",
+    #         "title": "Recently Used",
+    #     },
+    #     "list": {
+    #         "items": [],
+    #         "cursor": None
+    #     }
+    # }
+    return await chatgpt_reverse_proxy(request, "public-api/gizmos/discovery/recent")
 
 
-# 对话列表
 @app.api_route("/backend-api/conversations", methods=["GET", "PATCH"])
 async def get_conversations(request: Request):
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if len(token) == 45 or token.startswith("eyJhbGciOi"):
-        return await chatgpt_reverse_proxy(request, "backend-api/conversations")
-    if request.method == "GET":
-        limit = int(request.query_params.get("limit", 28))
-        offset = int(request.query_params.get("offset", 0))
-        is_archived = request.query_params.get("is_archived", None)
-        items = []
-        for conversation_id in globals.seed_map.get(token, {}).get("conversations", []):
-            conversation = globals.conversation_map.get(conversation_id, None)
-            if conversation:
-                if is_archived == "true":
-                    if conversation.get("is_archived", False):
-                        items.append(conversation)
-                else:
-                    if not conversation.get("is_archived", False):
-                        items.append(conversation)
-        items = items[int(offset):int(offset) + int(limit)]
-        conversations = {
-            "items": items,
-            "total": len(items),
-            "limit": limit,
-            "offset": offset,
-            "has_missing_conversations": False
-        }
-        return Response(content=json.dumps(conversations, indent=4), media_type="application/json")
-    else:
+    share_token = request.cookies.get("share_token", "")
+    # conversation_details_response转成json
+    conversation_list = await chatgpt_reverse_proxy(request, "backend-api/conversations")
+    conversation_list_str = conversation_list.body.decode('utf-8')
+    conversation_list_json = json.loads(conversation_list_str)
+
+    # 获取当前用户
+    username = redis_utils.get_username(request)
+    conversation_isolation = redis_utils.hash_get("share_token_info:" + share_token, 'conversation_isolation')
+
+    if conversation_isolation is not None and not is_true(conversation_isolation):
+        return Response(
+            content=json.dumps(conversation_list_json),
+            media_type="application/json"
+        )
+    # 获取对话列表
+    conversations = redis_utils.set_members('user_conversations:' + (share_token if username is None else username))
+    if conversations is None:
         raise HTTPException(status_code=403, detail="Forbidden")
 
+    # 初始化map
+    conversation_map = {}
+    for conversation_id in conversations:
+        conversation_map[conversation_id] = conversation_id
 
-# 获取具体对话
+    for item in conversation_list_json['items']:
+        if conversation_map.get(item['id']) is None:
+            item['title'] = '🔒'
+
+    return Response(
+        content=json.dumps(conversation_list_json),
+        media_type="application/json"
+    )
+
+
 @app.get("/backend-api/conversation/{conversation_id}")
 async def update_conversation(request: Request, conversation_id: str):
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    share_token = request.cookies.get("share_token", "")
+    conversation_isolation = redis_utils.hash_get("share_token_info:" + share_token, 'conversation_isolation')
+    if conversation_isolation is not None and is_true(conversation_isolation):
+        # 获取当前用户
+        username = redis_utils.get_username(request)
+        # 获取对话列表
+        conversations = redis_utils.set_members('user_conversations:' + username)
+        if conversations is None or conversation_id not in conversations:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
     conversation_details_response = await chatgpt_reverse_proxy(request,
                                                                 f"backend-api/conversation/{conversation_id}")
-    if len(token) == 45 or token.startswith("eyJhbGciOi"):
-        return conversation_details_response
-    else:
-        conversation_details_str = conversation_details_response.body.decode('utf-8')
-        conversation_details = json.loads(conversation_details_str)
-        if conversation_id in globals.seed_map[token]["conversations"] and conversation_id in globals.conversation_map:
-            globals.conversation_map[conversation_id]["title"] = conversation_details.get("title", None)
-            globals.conversation_map[conversation_id]["is_archived"] = conversation_details.get("is_archived",
-                                                                                                False)
-            globals.conversation_map[conversation_id]["conversation_template_id"] = conversation_details.get(
-                "conversation_template_id", None)
-            globals.conversation_map[conversation_id]["gizmo_id"] = conversation_details.get("gizmo_id", None)
-            globals.conversation_map[conversation_id]["async_status"] = conversation_details.get("async_status",
-                                                                                                 None)
-            with open(globals.CONVERSATION_MAP_FILE, "w", encoding="utf-8") as f:
-                json.dump(globals.conversation_map, f, indent=4)
-        return conversation_details_response
+
+    return conversation_details_response
 
 
-# 更新具体对话
 @app.patch("/backend-api/conversation/{conversation_id}")
 async def patch_conversation(request: Request, conversation_id: str):
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    share_token = request.cookies.get("share_token", "")
+
+    conversation_isolation = redis_utils.hash_get("share_token_info:" + share_token, 'conversation_isolation')
+    if conversation_isolation is not None and is_true(conversation_isolation):
+        # 获取当前用户
+        username = redis_utils.get_username(request)
+        # 获取对话列表
+        conversations = redis_utils.set_members('user_conversations:' + username)
+        if conversations is None or conversation_id not in conversations:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
     patch_response = (await chatgpt_reverse_proxy(request, f"backend-api/conversation/{conversation_id}"))
-    if len(token) == 45 or token.startswith("eyJhbGciOi"):
-        return patch_response
-    else:
-        data = await request.json()
-        if conversation_id in globals.seed_map[token][
-            "conversations"] and conversation_id in globals.conversation_map:
-            if not data.get("is_visible", True):
-                globals.conversation_map.pop(conversation_id)
-                globals.seed_map[token]["conversations"].remove(conversation_id)
-                with open(globals.SEED_MAP_FILE, "w", encoding="utf-8") as f:
-                    json.dump(globals.seed_map, f, indent=4)
-            else:
-                globals.conversation_map[conversation_id].update(data)
-            with open(globals.CONVERSATION_MAP_FILE, "w", encoding="utf-8") as f:
-                json.dump(globals.conversation_map, f, indent=4)
-        return patch_response
+    return patch_response
 
 
-# 获取我的信息
 @app.get("/backend-api/me")
 async def get_me(request: Request):
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if len(token) == 45 or token.startswith("eyJhbGciOi"):
+    share_token = request.cookies.get("share_token", "")
+    token = redis_utils.hash_get('share_token_info:' + share_token, 'access_token')
+    conversation_isolation = redis_utils.hash_get("share_token_info:" + share_token,
+                                                  'conversation_isolation') if share_token is not None else ''
+
+    if token.startswith("eyJhbGciOi") and conversation_isolation is not None and not is_true(conversation_isolation):
         return await chatgpt_reverse_proxy(request, "backend-api/me")
     else:
         me = {
@@ -256,7 +263,7 @@ if no_sentinel:
 
     @app.post("/backend-api/conversation")
     async def chat_conversations(request: Request):
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        token = redis_utils.hash_get('share_token_info:' + request.cookies.get("share_token", ""), 'access_token')
         req_token = await get_real_req_token(token)
         access_token = await verify_token(req_token)
         fp = get_fp(req_token).copy()
@@ -362,11 +369,40 @@ if no_sentinel:
             return Response(content=(await r.atext()), headers=rheaders, media_type=rheaders.get("content-type"),
                             status_code=r.status_code, background=background)
 
+@app.get("/api/usage")
+async def get_usage(share_token: str):
+    """获取用户的模型使用量"""
+    try:
+        # 从redis获取用户名
+        name_from_redis = redis_utils.hash_get('share_token_info:' + share_token, 'username')
+        username = share_token if name_from_redis is None else name_from_redis
+        
+        # 获取该用户的所有模型使用量
+        usage = redis_utils.hash_get("usage:" + username)
+        
+        # 如果没有使用记录则返回空字典
+        if not usage:
+            usage = {}
+            
+        return {
+            "status": True,
+            "message": "Success",
+            "data": usage
+        }
+        
+    except Exception as e:
+        return {
+            "status": False, 
+            "message": str(e),
+            "data": None
+        }
+
+
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE"])
 async def reverse_proxy(request: Request, path: str):
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if len(token) != 45 and not token.startswith("eyJhbGciOi"):
+    token = redis_utils.hash_get('share_token_info:' + request.cookies.get("share_token", ""), 'access_token')
+    if not token.startswith("eyJhbGciOi"):
         for banned_path in banned_paths:
             if re.match(banned_path, path):
                 raise HTTPException(status_code=403, detail="Forbidden")

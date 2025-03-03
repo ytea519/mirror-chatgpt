@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap');
+        
+        * {
+            font-family: 'Noto Sans SC', sans-serif;
+        }
+        
+        .modern-gradient {
+            background: linear-gradient(
+                125deg,
+                #2c2321 0%,
+                #3d3635 25%,
+                #4a4241 50%,
+                #574f4e 75%,
+                #6a5d5b 100%
+            );
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .modern-gradient::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: 
+                radial-gradient(circle at 0% 0%, rgba(255, 236, 210, 0.12) 0%, transparent 50%),
+                radial-gradient(circle at 100% 0%, rgba(255, 223, 204, 0.12) 0%, transparent 50%),
+                radial-gradient(circle at 100% 100%, rgba(255, 218, 185, 0.12) 0%, transparent 50%),
+                radial-gradient(circle at 0% 100%, rgba(255, 228, 196, 0.12) 0%, transparent 50%);
+        }
+        
+        .modern-gradient::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-9-21c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM60 91c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM35 41c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM12 60c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2z' fill='%23D4C4BC' fill-opacity='0.03' fill-rule='evenodd'/%3E%3C/svg%3E");
+            opacity: 0.5;
+            z-index: 0;
+        }
+        
+        .modern-card {
+            background: rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 
+                0 25px 50px -12px rgba(0, 0, 0, 0.25),
+                0 0 0 1px rgba(255, 255, 255, 0.1);
+            animation: cardAppear 0.6s ease-out;
+        }
+        
+        @keyframes cardAppear {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .title-glow {
+            text-shadow: 0 0 30px rgba(255, 236, 210, 0.3);
+            animation: titlePulse 3s ease-in-out infinite;
+        }
+        
+        @keyframes titlePulse {
+            0%, 100% {
+                opacity: 0.9;
+                text-shadow: 0 0 30px rgba(255, 236, 210, 0.3);
+            }
+            50% {
+                opacity: 1;
+                text-shadow: 0 0 40px rgba(255, 236, 210, 0.4);
+            }
+        }
+        
+        .modern-input {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(10px);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .modern-input:focus {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.2);
+            box-shadow: 
+                0 0 0 2px rgba(255, 255, 255, 0.1),
+                0 0 20px rgba(255, 236, 210, 0.1);
+            transform: translateY(-1px);
+        }
+        
+        .modern-input::placeholder {
+            color: rgba(255, 255, 255, 0.35);
+            transition: all 0.3s ease;
+        }
+        
+        .modern-input:focus::placeholder {
+            opacity: 0.7;
+            transform: translateX(4px);
+        }
+        
+        .modern-button {
+            background: linear-gradient(135deg, rgba(212, 196, 188, 0.15), rgba(255, 236, 210, 0.15));
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .modern-button::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(120deg, 
+                rgba(255, 255, 255, 0) 0%,
+                rgba(255, 255, 255, 0.1) 50%,
+                rgba(255, 255, 255, 0) 100%);
+            transform: translateX(-100%);
+            transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .modern-button:hover::before {
+            transform: translateX(100%);
+        }
+        
+        .modern-button:hover {
+            background: linear-gradient(135deg, rgba(212, 196, 188, 0.2), rgba(255, 236, 210, 0.2));
+            transform: translateY(-2px);
+            box-shadow: 
+                0 10px 20px rgba(0, 0, 0, 0.2),
+                0 0 20px rgba(255, 236, 210, 0.1);
+        }
+        
+        .modern-button:active {
+            transform: translateY(0);
+            transition: all 0.1s ease;
+        }
+        
+        .floating-shapes {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+        }
+        
+        .floating-shapes div {
+            position: absolute;
+            background: linear-gradient(45deg, rgba(212, 196, 188, 0.08), rgba(255, 236, 210, 0.08));
+            border-radius: 50%;
+            animation: float 20s infinite linear;
+            transition: all 0.3s ease;
+        }
+        
+        .floating-shapes div:hover {
+            opacity: 0.9;
+            filter: brightness(1.2);
+        }
+        
+        .floating-shapes div:nth-child(1) {
+            width: 300px;
+            height: 300px;
+            top: -150px;
+            left: -150px;
+            animation-delay: -5s;
+        }
+        
+        .floating-shapes div:nth-child(2) {
+            width: 400px;
+            height: 400px;
+            top: 50%;
+            right: -200px;
+            animation-delay: -10s;
+        }
+        
+        .floating-shapes div:nth-child(3) {
+            width: 200px;
+            height: 200px;
+            bottom: -100px;
+            left: 30%;
+            animation-delay: -15s;
+        }
+
+        .floating-shapes div:nth-child(4) {
+            width: 180px;
+            height: 180px;
+            top: 20%;
+            left: -90px;
+            animation-delay: -8s;
+        }
+
+        .floating-shapes div:nth-child(5) {
+            width: 160px;
+            height: 160px;
+            bottom: 10%;
+            right: 5%;
+            animation-delay: -12s;
+        }
+
+        .floating-shapes div:nth-child(6) {
+            width: 140px;
+            height: 140px;
+            top: 15%;
+            right: 10%;
+            animation-delay: -7s;
+        }
+
+        .floating-shapes div:nth-child(7) {
+            width: 120px;
+            height: 120px;
+            top: 40%;
+            left: 5%;
+            animation-delay: -9s;
+        }
+
+        .floating-shapes div:nth-child(8) {
+            width: 100px;
+            height: 100px;
+            bottom: 30%;
+            right: 25%;
+            animation-delay: -14s;
+        }
+        
+        @keyframes float {
+            0% {
+                transform: rotate(0deg) translate(50px) rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg) translate(50px) rotate(-360deg);
+            }
+        }
+        
+        .theme-button {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            z-index: 100;
+        }
+        
+        .theme-button:hover {
+            transform: rotate(30deg);
+            background: rgba(255, 255, 255, 0.15);
+        }
+        
+        .theme-button svg {
+            width: 20px;
+            height: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            transition: all 0.3s ease;
+        }
+        
+        .theme-button:hover svg {
+            transform: scale(1.1);
+        }
+
+        /* 预定义主题 */
+        .theme-1 {
+            background: linear-gradient(125deg, #2c2321 0%, #3d3635 25%, #4a4241 50%, #574f4e 75%, #6a5d5b 100%);
+        }
+        
+        .theme-2 {
+            background: linear-gradient(125deg, #1a365d 0%, #2d3748 25%, #4a5568 50%, #718096 75%, #a0aec0 100%);
+        }
+        
+        .theme-3 {
+            background: linear-gradient(125deg, #1e1b4b 0%, #312e81 25%, #4338ca 50%, #4f46e5 75%, #6366f1 100%);
+        }
+        
+        .theme-4 {
+            background: linear-gradient(125deg, #064e3b 0%, #065f46 25%, #047857 50%, #059669 75%, #10b981 100%);
+        }
+        
+        .theme-5 {
+            background: linear-gradient(125deg, #2d2417 0%, #4a3f30 25%, #6b5842 50%, #8b7355 75%, #a69070 100%);
+        }
+        
+        .theme-transition {
+            transition: background 1s ease;
+        }
+    </style>
+</head>
+<body class="modern-gradient theme-1 min-h-screen flex items-center justify-center p-4">
+    <div class="floating-shapes">
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+    </div>
+    <div class="relative z-10">
+        <div class="modern-card w-[420px] rounded-2xl p-8">
+            <h1 class="text-4xl font-medium text-white/90 text-center mb-8 title-glow">ChatGPT</h1>
+            <div class="space-y-6">
+                <textarea
+                    id="token-input"
+                    name="token"
+                    placeholder="Access Token / Refresh Token / Share Token"
+                    class="modern-input w-full h-28 px-4 py-3 text-sm text-white/90 rounded-xl focus:outline-none"
+                    style="resize: none;"
+                ></textarea>
+                <button
+                    onclick="handleLogin()"
+                    class="modern-button w-full py-3.5 px-4 rounded-xl text-white/90 text-base font-normal tracking-wider"
+                >
+                    开始使用
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <button class="theme-button" onclick="changeTheme()" title="切换主题">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+        </svg>
+    </button>
+
+    <script>
+        function handleLogin() {
+            const button = document.querySelector('.modern-button');
+            const input = document.getElementById('token-input');
+            const card = document.querySelector('.modern-card');
+            
+            if (input.value.trim()) {
+                button.style.transform = 'scale(0.98)';
+                card.style.opacity = '0.8';
+                card.style.transform = 'scale(0.98)';
+                
+                setTimeout(() => {
+                    window.location.href = '/?share_token=' + input.value;
+                }, 300);
+            } else {
+                input.style.transform = 'translateX(0)';
+                input.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                input.style.animation = 'shake 0.5s cubic-bezier(.36,.07,.19,.97) both';
+                
+                setTimeout(() => {
+                    input.style.animation = '';
+                    input.style.borderColor = 'rgba(255, 255, 255, 0.12)';
+                }, 500);
+            }
+        }
+
+        // 支持回车提交
+        document.getElementById('token-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleLogin();
+            }
+        });
+
+        // 添加输入动效
+        const input = document.getElementById('token-input');
+        input.addEventListener('focus', function() {
+            this.parentElement.style.transform = 'scale(1.01)';
+        });
+        
+        input.addEventListener('blur', function() {
+            this.parentElement.style.transform = 'scale(1)';
+        });
+
+        // 添加抖动动画
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes shake {
+                10%, 90% { transform: translateX(-1px); }
+                20%, 80% { transform: translateX(2px); }
+                30%, 50%, 70% { transform: translateX(-4px); }
+                40%, 60% { transform: translateX(4px); }
+            }
+        `;
+        document.head.appendChild(style);
+
+        // 主题切换功能
+        const themes = [
+            {
+                background: ['#2c2321', '#3d3635', '#4a4241', '#574f4e', '#6a5d5b'],
+                accent: ['255, 236, 210', '255, 223, 204', '255, 218, 185', '255, 228, 196']
+            },
+            {
+                background: ['#1a365d', '#2d3748', '#4a5568', '#718096', '#a0aec0'],
+                accent: ['199, 210, 254', '165, 180, 252', '129, 140, 248', '99, 102, 241']
+            },
+            {
+                background: ['#1e1b4b', '#312e81', '#4338ca', '#4f46e5', '#6366f1'],
+                accent: ['238, 242, 255', '224, 231, 255', '199, 210, 254', '165, 180, 252']
+            },
+            {
+                background: ['#064e3b', '#065f46', '#047857', '#059669', '#10b981'],
+                accent: ['209, 250, 229', '167, 243, 208', '110, 231, 183', '52, 211, 153']
+            },
+            {
+                background: ['#2d2417', '#4a3f30', '#6b5842', '#8b7355', '#a69070'],
+                accent: ['255, 248, 220', '255, 236, 179', '255, 224, 138', '255, 213, 97']
+            }
+        ];
+
+        let currentTheme = 0;
+
+        function changeTheme() {
+            const body = document.querySelector('body');
+            currentTheme = (currentTheme + 1) % themes.length;
+            
+            // 添加过渡类
+            body.classList.add('theme-transition');
+            
+            // 更新渐变背景
+            const gradientStyle = `
+                linear-gradient(
+                    125deg,
+                    ${themes[currentTheme].background[0]} 0%,
+                    ${themes[currentTheme].background[1]} 25%,
+                    ${themes[currentTheme].background[2]} 50%,
+                    ${themes[currentTheme].background[3]} 75%,
+                    ${themes[currentTheme].background[4]} 100%
+                )
+            `;
+            
+            body.style.background = gradientStyle;
+            
+            // 更新光晕颜色
+            const beforeElement = document.querySelector('.modern-gradient::before');
+            if (beforeElement) {
+                beforeElement.style.background = `
+                    radial-gradient(circle at 0% 0%, rgba(${themes[currentTheme].accent[0]}, 0.12) 0%, transparent 50%),
+                    radial-gradient(circle at 100% 0%, rgba(${themes[currentTheme].accent[1]}, 0.12) 0%, transparent 50%),
+                    radial-gradient(circle at 100% 100%, rgba(${themes[currentTheme].accent[2]}, 0.12) 0%, transparent 50%),
+                    radial-gradient(circle at 0% 100%, rgba(${themes[currentTheme].accent[3]}, 0.12) 0%, transparent 50%)
+                `;
+            }
+            
+            // 添加切换动画
+            const button = document.querySelector('.theme-button');
+            button.style.transform = 'rotate(180deg)';
+            setTimeout(() => {
+                button.style.transform = 'rotate(0deg)';
+            }, 300);
+            
+            // 移除过渡类
+            setTimeout(() => {
+                body.classList.remove('theme-transition');
+            }, 1000);
+        }
+    </script>
+</body>
+</html>
