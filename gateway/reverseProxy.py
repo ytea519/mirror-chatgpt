@@ -223,24 +223,24 @@ async def content_generator_with_lock_release(r, share_token, history, lock_key=
         except asyncio.CancelledError:
             logger.info(f"锁续期任务被取消: {lock_key}")
             return
-    
+
     # 启动后台任务
     if lock_key:
         lock_extend_task = asyncio.create_task(extend_lock_lifetime())
-    
+
     try:
         logger.info(f"开始流式处理，lock_key: {lock_key}, 开始时间: {datetime.now().isoformat()}")
-        
+
         async for chunk in r.aiter_content():
             current_time = time.time()
             chunk_count += 1
             time_since_last = current_time - last_chunk_time
-            
+
             # 记录每个数据块的接收时间和间隔
             chunk_size = len(chunk)
             logger.info(f"接收到第 {chunk_count} 个数据块, 大小: {chunk_size}字节, 间隔: {time_since_last:.3f}秒, 时间: {datetime.now().isoformat()}")
             last_chunk_time = current_time
-            
+
             # 检查是否为流结束标记
             try:
                 chunk_text = chunk.decode('utf-8', errors='ignore').strip()
@@ -254,7 +254,7 @@ async def content_generator_with_lock_release(r, share_token, history, lock_key=
                         lock_key = None  # 防止finally中重复释放
             except Exception as e:
                 logger.error(f"解析流结束标记出错: {str(e)}")
-                
+
             # 更智能的超时检测 - 不使用固定90秒，而是检测数据活动
             if time_since_last > 20 and current_time - start_time > 30 and lock_key:
                 logger.warning(f"数据流20秒无活动，释放锁: {lock_key}, 总时间: {current_time - start_time:.3f}秒")
@@ -263,14 +263,14 @@ async def content_generator_with_lock_release(r, share_token, history, lock_key=
                     lock_key = None  # 防止finally中重复释放
                 except Exception as e:
                     logger.error(f"释放锁失败: {str(e)}")
-                
+
             # 发送一个保活信号，防止连接超时
             if time_since_last > 10 and not finish_marker_received:
                 logger.info("发送保活信号")
                 # 降低保活信号间隔到10秒
                 yield b":\n\n"  # SSE注释作为保活信号
                 chunk_sent_count += 1
-                
+
             # 正常处理数据...
             try:
                 if history and (not conversation_id or not model):
@@ -348,7 +348,7 @@ async def content_generator_with_lock_release(r, share_token, history, lock_key=
         # 取消锁续期任务
         if 'lock_extend_task' in locals():
             lock_extend_task.cancel()
-            
+
         # 确保锁被释放
         if lock_key:
             try:
@@ -675,7 +675,6 @@ async def chatgpt_reverse_proxy(request: Request, path: str):
                 logger.info(f"Request proxy: {proxy_url}")
                 logger.info(f"Request UA: {user_agent}")
                 logger.info(f"Request impersonate: {impersonate}")
-                conv_key = r.cookies.get("conv_key", "")
 
                 # 创建自定义的内容生成器，以便在流结束时释放锁
                 if need_release_lock:
@@ -694,11 +693,13 @@ async def chatgpt_reverse_proxy(request: Request, path: str):
                         "Transfer-Encoding": "chunked"  # 显式使用分块传输
                     }
                 )
-                response.set_cookie("conv_key", value=conv_key)
+                conv_key = r.cookies.get("conv_key", "")
+                if conv_key:
+                    response.set_cookie("conv_key", value=conv_key)
                 return response
             elif 'image' in r.headers.get("content-type", "") or "audio" in r.headers.get("content-type",
                                                                                           "") or "video" in r.headers.get(
-                    "content-type", ""):
+                "content-type", ""):
                 # 处理媒体内容时释放锁
                 if need_release_lock:
                     redis_utils.delete(lock_key)

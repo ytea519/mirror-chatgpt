@@ -138,6 +138,7 @@ async def stream_response(service, response, model, max_tokens):
     last_role = None
     last_content_type = None
     last_status = None
+    last_completed_rate = None
     model_slug = None
     end = False
 
@@ -237,12 +238,15 @@ async def stream_response(service, response, model, max_tokens):
                             current_height = part.get('metadata', {}).get("generation", {}).get("height", 0)
                             if full_height > current_height:
                                 completed_rate = current_height / full_height
-                                new_text = f"\n> {completed_rate:.2%}\n"
+                                if last_completed_rate and last_completed_rate >= completed_rate:
+                                    completed_rate = min(last_completed_rate + random.uniform(0.01, 0.05), 0.9999)
+                                new_text = f"\n> 🏃🏻‍♂️{completed_rate:.2%}..."
+                                last_completed_rate = completed_rate
                                 if last_role != role:
                                     new_text = f"\n```{new_text}"
                             else:
                                 image_download_url = await service.get_attachment_url(file_id, conversation_id)
-                                new_text = f"\n```\n![image]({image_download_url})\n"
+                                new_text = f"\n> ✅100.00%\n```\n![image]({image_download_url})\n"
                     else:
                         text = content.get("text", "")
                         if outer_content_type == "code" and last_content_type != "code":
@@ -291,7 +295,7 @@ async def stream_response(service, response, model, max_tokens):
                                 else:
                                     file_id = part.get('asset_pointer').replace('sediment://', '')
                                     image_download_url = await service.get_attachment_url(file_id, conversation_id)
-                                    delta = {"content": f"\n![image]({image_download_url})\n"}
+                                    delta = {"content": f"\n> ✅100.00%\n\n![image]({image_download_url})\n"}
                     elif message.get("end_turn"):
                         part = content.get("parts", [])[0]
                         new_text = part[len_last_content:]

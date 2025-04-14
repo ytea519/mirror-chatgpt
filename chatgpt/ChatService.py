@@ -104,12 +104,11 @@ class ChatService:
         self.chat_headers = None
         self.chat_request = None
 
-        self.base_headers = {
+        self.origin_base_headers = {
             'accept': '*/*',
             'accept-encoding': 'gzip, deflate, br, zstd',
             'accept-language': 'en-US,en;q=0.9',
             'content-type': 'application/json',
-            'oai-language': oai_language,
             'origin': self.host_url,
             'priority': 'u=1, i',
             'referer': f'{self.host_url}/',
@@ -117,7 +116,10 @@ class ChatService:
             'sec-fetch-mode': 'cors',
             'sec-fetch-site': 'same-origin'
         }
+
+        self.base_headers = self.origin_base_headers.copy()
         self.base_headers.update(self.fp)
+        self.base_headers['oai-language'] = oai_language
 
         if self.access_token:
             self.base_url = self.host_url + "/backend-api"
@@ -402,7 +404,7 @@ class ChatService:
         url = f"{self.base_url}/files/{file_id}/download"
         headers = self.base_headers.copy()
         try:
-            r = await self.s.get(url, headers=headers, timeout=10)
+            r = await self.s.get(url, headers=headers, timeout=30)
             if r.status_code == 200:
                 download_url = r.json().get('download_url')
                 return download_url
@@ -416,7 +418,7 @@ class ChatService:
         url = f"{self.base_url}/conversation/{conversation_id}/attachment/{file_id}/download"
         headers = self.base_headers.copy()
         try:
-            r = await self.s.get(url, headers=headers, timeout=10)
+            r = await self.s.get(url, headers=headers, timeout=30)
             if r.status_code == 200:
                 download_url = r.json().get('download_url')
                 return download_url
@@ -430,7 +432,7 @@ class ChatService:
         url = f"{self.base_url}/files/{file_id}/uploaded"
         headers = self.base_headers.copy()
         try:
-            r = await self.s.post(url, headers=headers, json={}, timeout=10)
+            r = await self.s.post(url, headers=headers, json={}, timeout=30)
             if r.status_code == 200:
                 download_url = r.json().get('download_url')
                 return download_url
@@ -448,7 +450,7 @@ class ChatService:
                 url,
                 headers=headers,
                 json={"file_name": file_name, "file_size": file_size, "reset_rate_limits": False, "timezone_offset_min": -480, "use_case": use_case},
-                timeout=5,
+                timeout=30,
             )
             if r.status_code == 200:
                 res = r.json()
@@ -463,26 +465,25 @@ class ChatService:
             return "", ""
 
     async def upload(self, upload_url, file_content, mime_type):
-        headers = self.base_headers.copy()
-        headers.update(
-            {
-                'accept': 'application/json, text/plain, */*',
-                'content-type': mime_type,
-                'x-ms-blob-type': 'BlockBlob',
-                'x-ms-version': '2020-04-08',
-            }
-        )
-        headers.pop('authorization', None)
-        headers.pop('oai-device-id', None)
-        headers.pop('oai-language', None)
-        try:
-            r = await self.s.put(upload_url, headers=headers, data=file_content, timeout=120)
-            if r.status_code == 201:
-                return True
-            else:
-                raise HTTPException(status_code=r.status_code, detail=r.text)
-        except Exception as e:
-            logger.error(f"Failed to upload file: {e}")
+        for i in range(3):
+            try:
+                headers = self.origin_base_headers.copy()
+                headers.update({
+                    'accept': 'application/json, text/plain, */*',
+                    'content-type': mime_type,
+                    'x-ms-blob-type': 'BlockBlob',
+                    'x-ms-version': '2020-04-08',
+                })
+                r = await self.s.put(upload_url, headers=headers, data=file_content, timeout=120)
+                if r.status_code == 201:
+                    return True
+                else:
+                    raise HTTPException(status_code=r.status_code, detail=r.text)
+            except Exception as e:
+                logger.error(f"Failed to upload file: {e}")
+                await asyncio.sleep(1)
+        else:
+            logger.error(f"Failed to upload file after 3 attempts")
             return False
 
     async def upload_file(self, file_content, mime_type):
