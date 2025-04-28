@@ -2,6 +2,9 @@ import redis
 from typing import Any, Optional, List, Dict, Union
 import json
 from fastapi import Request
+import time
+import logging
+from redis.exceptions import ConnectionError, TimeoutError
 
 class RedisUtils:
     def __init__(self, host: str = 'localhost', port: int = 6379, db: int = 0,
@@ -16,13 +19,51 @@ class RedisUtils:
             password: Redis 密码
             decode_responses: 是否自动解码响应
         """
-        self.redis_client = redis.Redis(
-            host=host,
-            port=port,
-            db=db,
-            password=password,
-            decode_responses=decode_responses
-        )
+        try:
+            logger = logging.getLogger(__name__)
+            
+            # 添加重试逻辑
+            max_retries = 3
+            retry_delay = 1  # 秒
+            
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"尝试连接 Redis {host}:{port} (数据库 {db})...")
+                    self.redis_client = redis.Redis(
+                        host=host,
+                        port=port,
+                        db=db,
+                        password=password,
+                        decode_responses=decode_responses,
+                        socket_timeout=5.0,  # 添加超时设置
+                        socket_connect_timeout=5.0,
+                        health_check_interval=30  # 定期检查连接健康状况
+                    )
+                    # 测试连接
+                    self.redis_client.ping()
+                    logger.info(f"Redis 连接成功 {host}:{port}")
+                    break
+                except (ConnectionError, TimeoutError) as e:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Redis 连接失败 (尝试 {attempt+1}/{max_retries}): {str(e)}，将在 {retry_delay} 秒后重试...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # 指数退避
+                    else:
+                        logger.error(f"Redis 连接最终失败: {str(e)}")
+                        # 仍然创建客户端，但后续操作可能会失败
+                        self.redis_client = redis.Redis(
+                            host=host,
+                            port=port,
+                            db=db,
+                            password=password,
+                            decode_responses=decode_responses
+                        )
+        except ImportError as e:
+            logger.error(f"Redis 依赖导入失败: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Redis 初始化时发生未知错误: {str(e)}")
+            raise
 
     # expire 方法
     def expire(self, key: str, seconds: int) -> bool:
@@ -257,18 +298,58 @@ class RedisUtils:
         Returns:
             Optional[int]: 新添加的元素数量
         """
-        try:
-            processed_values = [
-                json.dumps(v) if not isinstance(v, (str, int, float, bool)) else v
-                for v in values
-            ]
-            result = self.redis_client.sadd(name, *processed_values)
-            if expire_seconds:
-                self.redis_client.expire(name, expire_seconds)
-            return result
-        except Exception as e:
-            print(f"Error adding to set: {str(e)}")
-            return None
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if not values:
+            logger.warning(f"尝试向集合 {name} 添加空值")
+            return 0
+            
+        max_retries = 3
+        retry_delay = 0.5  # 秒
+        
+        for attempt in range(max_retries):
+            try:
+                # 处理可能为 None 的值
+                valid_values = [value for value in values if value is not None]
+                if not valid_values:
+                    logger.warning(f"集合 {name} 的所有值均为 None，跳过添加")
+                    return 0
+                    
+                # 序列化复杂数据类型
+                processed_values = [
+                    json.dumps(v) if not isinstance(v, (str, int, float, bool)) else v
+                    for v in valid_values
+                ]
+                
+                # 执行添加操作
+                result = self.redis_client.sadd(name, *processed_values)
+                
+                # 设置过期时间
+                if expire_seconds and result > 0:
+                    expiry_result = self.redis_client.expire(name, expire_seconds)
+                    if not expiry_result:
+                        logger.warning(f"无法为集合 {name} 设置过期时间 {expire_seconds}秒")
+                
+                logger.info(f"向集合 {name} 添加了 {result} 个元素")
+                return result
+                
+            except redis.exceptions.ConnectionError as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"集合添加操作连接错误 (尝试 {attempt+1}/{max_retries}): {str(e)}，将在 {retry_delay} 秒后重试...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # 指数退避
+                else:
+                    logger.error(f"向集合 {name} 添加元素最终失败: {str(e)}")
+                    return None
+            except Exception as e:
+                logger.error(f"向集合 {name} 添加元素时出错: {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    return None
+        return None
 
     def set_members(self, name: str) -> List[Any]:
         """
@@ -280,12 +361,44 @@ class RedisUtils:
         Returns:
             List[Any]: 集合中的所有成员
         """
-        try:
-            values = self.redis_client.smembers(name)
-            return [self._try_json_decode(v) for v in values]
-        except Exception as e:
-            print(f"Error getting set members: {str(e)}")
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if not name:
+            logger.warning("尝试获取空名称的集合成员")
             return []
+            
+        max_retries = 3
+        retry_delay = 0.5  # 秒
+        
+        for attempt in range(max_retries):
+            try:
+                # 检查键是否存在
+                if not self.exists(name):
+                    logger.info(f"集合 {name} 不存在")
+                    return []
+                    
+                values = self.redis_client.smembers(name)
+                result = [self._try_json_decode(v) for v in values]
+                
+                logger.info(f"成功从集合 {name} 获取到 {len(result)} 个成员")
+                return result
+                
+            except redis.exceptions.ConnectionError as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"获取集合成员时连接错误 (尝试 {attempt+1}/{max_retries}): {str(e)}，将在 {retry_delay} 秒后重试...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # 指数退避
+                else:
+                    logger.error(f"从集合 {name} 获取成员最终失败: {str(e)}")
+            except Exception as e:
+                logger.error(f"从集合 {name} 获取成员时出错: {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    break
+        return []
 
     def _try_json_decode(self, value: Any) -> Any:
         """

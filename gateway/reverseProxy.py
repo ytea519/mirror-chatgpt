@@ -136,11 +136,12 @@ async def content_generator(r, share_token, history=True, request: Request = Non
 
     gpt_reset_every_day = redis_utils.hash_get('share_token_info:' + share_token, 'gpt_reset_every_day')
     username = redis_utils.get_username_by_token(share_token)
+    logger.info(f"开始处理用户 {username} 的对话流")
 
     async for chunk in r.aiter_content():
         try:
             if history and (not conversation_id or not model):
-                chat_chunk = chunk.decode('utf-8')
+                chat_chunk = chunk.decode('utf-8', errors='ignore')
                 if chat_chunk.startswith("data: {"):
                     if "\n\nevent: delta" in chat_chunk:
                         index = chat_chunk.find("\n\nevent: delta")
@@ -152,40 +153,59 @@ async def content_generator(r, share_token, history=True, request: Request = Non
                         chunk_data = chat_chunk[6:]
                     chunk_data = chunk_data.strip()
                     if conversation_id is None:
-                        conversation_id = json.loads(chunk_data).get("conversation_id")
-                        if conversation_id is not None:
-                            redis_utils.set_add('user_conversations:' + username, conversation_id)
-                    if model is None:
-                        chunk_json = json.loads(chunk_data)
-                        model = chunk_json.get("message").get("metadata").get("model_slug")
-                        if model is not None:
-                            model_usage = redis_utils.hash_get("usage:" + username, model)
-                            real_usage = 0 if model_usage is None else int(model_usage)
-                            if is_true(gpt_reset_every_day):
-                                redis_utils.hash_set("usage:" + username, {model: real_usage + 1})
+                        try:
+                            chunk_json = json.loads(chunk_data)
+                            conversation_id = chunk_json.get("conversation_id")
+                            if conversation_id is not None:
+                                logger.info(f"正在保存 conversation_id: {conversation_id} 到 Redis")
+                                # 添加操作结果检查
+                                result = redis_utils.set_add('user_conversations:' + username, conversation_id)
+                                if result:
+                                    logger.info(f"成功保存 conversation_id: {conversation_id} 到 Redis")
+                                else:
+                                    logger.error(f"保存 conversation_id: {conversation_id} 到 Redis 失败")
                             else:
-                                # 计算到第二天0点的秒数
-                                now = datetime.now()
-                                tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-                                expire_seconds = int((tomorrow - now).total_seconds())
-                                redis_utils.hash_set("usage:" + username, {model: real_usage + 1},
-                                                     expire_seconds=expire_seconds)
-                    # if conversation_id is not None:
-
-                    # save_conversation(token, conversation_id)
-                    # title = globals.conversation_map[conversation_id].get("title")
-                    # if title is None:
-                    #     if "title" in chunk_data:
-                    #         pass
-                    #     title = json.loads(chunk_data).get("title")
-                    # if title:
-                    #
-                    #     save_conversation(token, conversation_id, title)
+                                logger.warning("从响应数据中未获取到 conversation_id")
+                        except json.JSONDecodeError as je:
+                            logger.error(f"解析JSON数据失败: {je}, 原始数据: {chunk_data[:100]}...")
+                        except Exception as e:
+                            logger.error(f"处理 conversation_id 时出错: {str(e)}")
+                    if model is None:
+                        try:
+                            chunk_json = json.loads(chunk_data)
+                            message_data = chunk_json.get("message", {})
+                            if not isinstance(message_data, dict):
+                                message_data = {}
+                            metadata = message_data.get("metadata", {})
+                            if not isinstance(metadata, dict):
+                                metadata = {}
+                            model = metadata.get("model_slug")
+                            if model is not None:
+                                logger.info(f"获取到用户 {username} 使用的模型: {model}")
+                                model_usage = redis_utils.hash_get("usage:" + username, model)
+                                real_usage = 0 if model_usage is None else int(model_usage)
+                                if is_true(gpt_reset_every_day):
+                                    redis_result = redis_utils.hash_set("usage:" + username, {model: real_usage + 1})
+                                    if not redis_result:
+                                        logger.error(f"保存模型使用量失败: {model}")
+                                else:
+                                    # 计算到第二天0点的秒数
+                                    now = datetime.now()
+                                    tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                                    expire_seconds = int((tomorrow - now).total_seconds())
+                                    redis_result = redis_utils.hash_set("usage:" + username, {model: real_usage + 1},
+                                                        expire_seconds=expire_seconds)
+                                    if not redis_result:
+                                        logger.error(f"保存模型使用量(带过期时间)失败: {model}")
+                            else:
+                                logger.warning("从响应数据中未获取到模型信息")
+                        except json.JSONDecodeError as je:
+                            logger.error(f"解析JSON数据失败: {je}, 原始数据: {chunk_data[:100]}...")
+                        except Exception as e:
+                            logger.error(f"处理模型信息时出错: {str(e)}")
 
         except Exception as e:
-            # logger.error(e)
-            # logger.error(chunk.decode('utf-8'))
-            pass
+            logger.error(f"处理响应块时发生异常: {str(e)}")
         yield chunk
 
 
@@ -289,30 +309,52 @@ async def content_generator_with_lock_release(r, share_token, history, lock_key=
                             try:
                                 conversation_id = json.loads(chunk_data).get("conversation_id")
                                 if conversation_id is not None:
-                                    redis_utils.set_add('user_conversations:' + username, conversation_id)
-                                    logger.info(f"获取到conversation_id: {conversation_id}")
+                                    result = redis_utils.set_add('user_conversations:' + username, conversation_id)
+                                    if result:
+                                        logger.info(f"获取到并成功保存 conversation_id: {conversation_id}")
+                                    else:
+                                        logger.error(f"获取到 conversation_id: {conversation_id}，但保存到 Redis 失败")
+                                else:
+                                    logger.warning("从响应数据中未获取到 conversation_id")
+                            except json.JSONDecodeError as je:
+                                logger.error(f"解析JSON数据失败: {je}, 原始数据: {chunk_data[:100]}...")
                             except Exception as e:
-                                logger.error(f"解析conversation_id出错: {str(e)}")
+                                logger.error(f"处理 conversation_id 时出错: {str(e)}")
                         if model is None:
                             try:
                                 chunk_json = json.loads(chunk_data)
-                                model = chunk_json.get("message", {}).get("metadata", {}).get("model_slug")
+                                message_data = chunk_json.get("message", {})
+                                if not isinstance(message_data, dict):
+                                    message_data = {}
+                                metadata = message_data.get("metadata", {})
+                                if not isinstance(metadata, dict):
+                                    metadata = {}
+                                model = metadata.get("model_slug")
                                 if model is not None:
-                                    logger.info(f"获取到model: {model}")
+                                    logger.info(f"获取到模型: {model}")
                                     model_usage = redis_utils.hash_get("usage:" + username, model)
                                     real_usage = 0 if model_usage is None else int(model_usage)
+                                    
                                     if is_true(gpt_reset_every_day):
-                                        redis_utils.hash_set("usage:" + username, {model: real_usage + 1})
+                                        redis_result = redis_utils.hash_set("usage:" + username, {model: real_usage + 1})
+                                        if not redis_result:
+                                            logger.error(f"保存模型使用量失败: {model}")
                                     else:
                                         # 计算到第二天0点的秒数
                                         now = datetime.now()
                                         tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0,
                                                                                      microsecond=0)
                                         expire_seconds = int((tomorrow - now).total_seconds())
-                                        redis_utils.hash_set("usage:" + username, {model: real_usage + 1},
-                                                             expire_seconds=expire_seconds)
+                                        redis_result = redis_utils.hash_set("usage:" + username, {model: real_usage + 1},
+                                                            expire_seconds=expire_seconds)
+                                        if not redis_result:
+                                            logger.error(f"保存模型使用量(带过期时间)失败: {model}")
+                                else:
+                                    logger.warning("从响应数据中未获取到模型信息")
+                            except json.JSONDecodeError as je:
+                                logger.error(f"解析JSON数据失败: {je}, 原始数据: {chunk_data[:100]}...")
                             except Exception as e:
-                                logger.error(f"解析model出错: {str(e)}")
+                                logger.error(f"处理模型信息时出错: {str(e)}")
             except Exception as e:
                 logger.error(f"处理数据块出错: {str(e)}")
 

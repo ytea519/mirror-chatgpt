@@ -4,6 +4,7 @@ services:
     environment:
       REDIS_HOST: 127.0.0.1
       REDIS_PORT: 6379
+      REDIS_PASSWORD: 123456        # redis 密码，如果没有则删除此行
       SSL_ENABLED: true
       PROXY_URL: http://username:password@ip:port
     ports:
