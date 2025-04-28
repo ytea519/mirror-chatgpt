@@ -398,7 +398,7 @@ async def chatgpt_reverse_proxy(request: Request, path: str):
         if "sandbox" in path:
             base_url = "https://web-sandbox.oaiusercontent.com"
             path = path.replace("sandbox/", "")
-        access_token = common_utils.get_access_token(share_token)
+        access_token = request.headers.get('authorization') if 'authorization' in request.headers else common_utils.get_access_token(share_token)
         headers.update({"authorization": f"Bearer {access_token}"})
 
         fp = get_fp(access_token).copy()
