@@ -14,6 +14,7 @@ from chatgpt.chatFormat import api_messages_to_chat, stream_response, format_not
 from chatgpt.chatLimit import check_is_limit, handle_request_limit
 from chatgpt.fp import get_fp
 from chatgpt.proofofWork import get_config, get_dpl, get_answer_token, get_requirements_token
+from chatgpt.stream_v1 import transform_delta_stream
 
 from utils.Client import Client
 from utils.Logger import logger
@@ -336,7 +337,7 @@ class ChatService:
             "parent_message_id": self.parent_message_id if self.parent_message_id else f"client-created-root",
             "reset_rate_limits": False,
             "suggestions": [],
-            "supported_encodings": [],
+            "supported_encodings": ["v1"],
             "system_hints": [],
             "timezone": "America/Los_Angeles",
             "timezone_offset_min": -480,
@@ -373,7 +374,8 @@ class ChatService:
 
             content_type = r.headers.get("Content-Type", "")
             if "text/event-stream" in content_type:
-                res, start = await head_process_response(r.aiter_lines())
+                complete_stream_data = transform_delta_stream(r.aiter_lines())
+                res, start = await head_process_response(complete_stream_data)
                 if not start:
                     raise HTTPException(
                         status_code=403,

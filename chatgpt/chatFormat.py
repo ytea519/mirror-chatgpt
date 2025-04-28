@@ -110,7 +110,8 @@ async def wss_stream_response(websocket, conversation_id):
 
 async def head_process_response(response):
     async for chunk in response:
-        chunk = chunk.decode("utf-8")
+        # print(chunk)
+        # chunk = chunk.decode("utf-8")
         if chunk.startswith("data: {"):
             chunk_old_data = json.loads(chunk[6:])
             message = chunk_old_data.get("message", {})
@@ -161,7 +162,8 @@ async def stream_response(service, response, model, max_tokens):
     yield f"data: {json.dumps(chunk_new_data)}\n\n"
 
     async for chunk in response:
-        chunk = chunk.decode("utf-8")
+        # print(chunk)
+        # chunk = chunk.decode("utf-8")
         if end:
             logger.info(f"Response Model: {model_slug}")
             yield "data: [DONE]\n\n"
@@ -246,7 +248,7 @@ async def stream_response(service, response, model, max_tokens):
                                     new_text = f"\n```{new_text}"
                             else:
                                 image_download_url = await service.get_attachment_url(file_id, conversation_id)
-                                new_text = f"\n> ✅100.00%\n```\n![image]({image_download_url})\n"
+                                new_text = f"\n```\n> ✅100.00%\n![image]({image_download_url})\n"
                     else:
                         text = content.get("text", "")
                         if outer_content_type == "code" and last_content_type != "code":
@@ -295,7 +297,10 @@ async def stream_response(service, response, model, max_tokens):
                                 else:
                                     file_id = part.get('asset_pointer').replace('sediment://', '')
                                     image_download_url = await service.get_attachment_url(file_id, conversation_id)
-                                    delta = {"content": f"\n> ✅100.00%\n\n![image]({image_download_url})\n"}
+                                    if last_role != role:
+                                        delta = {"content": f"\n```\n> ✅100.00%\n\n![image]({image_download_url})\n"}
+                                    else:
+                                        delta = {"content": f"\n> ✅100.00%\n\n![image]({image_download_url})\n"}
                     elif message.get("end_turn"):
                         part = content.get("parts", [])[0]
                         new_text = part[len_last_content:]
