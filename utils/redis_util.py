@@ -6,6 +6,7 @@ import time
 import logging
 from redis.exceptions import ConnectionError, TimeoutError
 
+
 class RedisUtils:
     def __init__(self, host: str = 'localhost', port: int = 6379, db: int = 0,
                  password: Optional[str] = None, decode_responses: bool = True):
@@ -21,11 +22,11 @@ class RedisUtils:
         """
         try:
             logger = logging.getLogger(__name__)
-            
+
             # 添加重试逻辑
             max_retries = 3
             retry_delay = 1  # 秒
-            
+
             for attempt in range(max_retries):
                 try:
                     logger.info(f"尝试连接 Redis {host}:{port} (数据库 {db})...")
@@ -45,7 +46,8 @@ class RedisUtils:
                     break
                 except (ConnectionError, TimeoutError) as e:
                     if attempt < max_retries - 1:
-                        logger.warning(f"Redis 连接失败 (尝试 {attempt+1}/{max_retries}): {str(e)}，将在 {retry_delay} 秒后重试...")
+                        logger.warning(
+                            f"Redis 连接失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}，将在 {retry_delay} 秒后重试...")
                         time.sleep(retry_delay)
                         retry_delay *= 2  # 指数退避
                     else:
@@ -236,7 +238,8 @@ class RedisUtils:
             print(f"Error getting hash: {str(e)}")
             return None
 
-    def list_push(self, name: str, *values: Any, left: bool = True, expire_seconds: Optional[int] = None) -> Optional[int]:
+    def list_push(self, name: str, *values: Any, left: bool = True, expire_seconds: Optional[int] = None) -> Optional[
+        int]:
         """
         向列表添加元素
 
@@ -261,7 +264,7 @@ class RedisUtils:
                 result = self.redis_client.lpush(name, *processed_values)
             else:
                 result = self.redis_client.rpush(name, *processed_values)
-                
+
             if expire_seconds:
                 self.redis_client.expire(name, expire_seconds)
             return result
@@ -300,14 +303,14 @@ class RedisUtils:
         """
         import logging
         logger = logging.getLogger(__name__)
-        
+
         if not values:
             logger.warning(f"尝试向集合 {name} 添加空值")
             return 0
-            
+
         max_retries = 3
         retry_delay = 0.5  # 秒
-        
+
         for attempt in range(max_retries):
             try:
                 # 处理可能为 None 的值
@@ -315,28 +318,29 @@ class RedisUtils:
                 if not valid_values:
                     logger.warning(f"集合 {name} 的所有值均为 None，跳过添加")
                     return 0
-                    
+
                 # 序列化复杂数据类型
                 processed_values = [
                     json.dumps(v) if not isinstance(v, (str, int, float, bool)) else v
                     for v in valid_values
                 ]
-                
+
                 # 执行添加操作
                 result = self.redis_client.sadd(name, *processed_values)
-                
+
                 # 设置过期时间
                 if expire_seconds and result > 0:
                     expiry_result = self.redis_client.expire(name, expire_seconds)
                     if not expiry_result:
                         logger.warning(f"无法为集合 {name} 设置过期时间 {expire_seconds}秒")
-                
+
                 logger.info(f"向集合 {name} 添加了 {result} 个元素")
                 return result
-                
+
             except redis.exceptions.ConnectionError as e:
                 if attempt < max_retries - 1:
-                    logger.warning(f"集合添加操作连接错误 (尝试 {attempt+1}/{max_retries}): {str(e)}，将在 {retry_delay} 秒后重试...")
+                    logger.warning(
+                        f"集合添加操作连接错误 (尝试 {attempt + 1}/{max_retries}): {str(e)}，将在 {retry_delay} 秒后重试...")
                     time.sleep(retry_delay)
                     retry_delay *= 2  # 指数退避
                 else:
@@ -363,30 +367,31 @@ class RedisUtils:
         """
         import logging
         logger = logging.getLogger(__name__)
-        
+
         if not name:
             logger.warning("尝试获取空名称的集合成员")
             return []
-            
+
         max_retries = 3
         retry_delay = 0.5  # 秒
-        
+
         for attempt in range(max_retries):
             try:
                 # 检查键是否存在
                 if not self.exists(name):
                     logger.info(f"集合 {name} 不存在")
                     return []
-                    
+
                 values = self.redis_client.smembers(name)
                 result = [self._try_json_decode(v) for v in values]
-                
+
                 logger.info(f"成功从集合 {name} 获取到 {len(result)} 个成员")
                 return result
-                
+
             except redis.exceptions.ConnectionError as e:
                 if attempt < max_retries - 1:
-                    logger.warning(f"获取集合成员时连接错误 (尝试 {attempt+1}/{max_retries}): {str(e)}，将在 {retry_delay} 秒后重试...")
+                    logger.warning(
+                        f"获取集合成员时连接错误 (尝试 {attempt + 1}/{max_retries}): {str(e)}，将在 {retry_delay} 秒后重试...")
                     time.sleep(retry_delay)
                     retry_delay *= 2  # 指数退避
                 else:
@@ -454,14 +459,14 @@ class RedisUtils:
             # 如果是复杂数据类型,转换为 JSON
             if not isinstance(value, (str, int, float, bool)):
                 value = json.dumps(value)
-                
+
             # 使用 setnx 命令设置值
             success = self.redis_client.setnx(key, value)
-            
+
             # 如果设置成功且指定了过期时间
             if success and expire_seconds:
                 self.redis_client.expire(key, expire_seconds)
-                
+
             return success
         except Exception as e:
             print(f"Error setting nx value: {str(e)}")

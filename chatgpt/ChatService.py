@@ -189,7 +189,7 @@ class ChatService:
             config = get_config(self.user_agent, self.req_token)
             p = get_requirements_token(config)
             data = {'p': p}
-            r = await self.ss.post(url, headers=headers, json=data, timeout=5)
+            r = await self.ss.post(url, headers=headers, json=data, timeout=10)
             if r.status_code == 200:
                 resp = r.json()
 
@@ -319,35 +319,33 @@ class ChatService:
                 "time_since_loaded": random.randint(50, 500),
                 "page_height": random.randint(500, 1000),
                 "page_width": random.randint(1000, 2000),
-                "pixel_ratio": 1.5,
-                "screen_height": random.randint(800, 1200),
-                "screen_width": random.randint(1200, 2200),
+                "pixel_ratio": 1,
+                "screen_height": 1440,
+                "screen_width": 2560,
             },
             "conversation_mode": conversation_mode,
-            "conversation_origin": None,
+            "enable_message_followups": False,
             "force_paragen": False,
             "force_paragen_model_slug": "",
             "force_rate_limit": False,
             "force_use_sse": True,
-            "history_and_training_disabled": self.history_disabled,
             "messages": chat_messages,
             "model": self.req_model,
             "paragen_cot_summary_display_override": "allow",
-            "paragen_stream_type_override": None,
             "parent_message_id": self.parent_message_id if self.parent_message_id else f"client-created-root",
-            "reset_rate_limits": False,
-            "suggestions": [],
             "supported_encodings": ["v1"],
             "system_hints": [],
             "timezone": "America/Los_Angeles",
             "timezone_offset_min": -480,
             "variant_purpose": "comparison_implicit",
-            "websocket_request_id": f"{uuid.uuid4()}",
         }
         if "image" in self.origin_model or "image" in self.req_model:
             self.chat_request["system_hints"].append("picture_v2")
         if self.conversation_id:
             self.chat_request['conversation_id'] = self.conversation_id
+        if self.history_disabled:
+            self.chat_request["history_and_training_disabled"] = True
+
         return self.chat_request
 
     async def send_conversation(self):
