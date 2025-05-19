@@ -261,7 +261,7 @@ async def content_generator_with_lock_release(r, share_token, history, lock_key=
 
             # 记录每个数据块的接收时间和间隔
             chunk_size = len(chunk)
-            logger.info(f"接收到第 {chunk_count} 个数据块, 大小: {chunk_size}字节, 间隔: {time_since_last:.3f}秒, 时间: {datetime.now().isoformat()}")
+            # logger.info(f"接收到第 {chunk_count} 个数据块, 大小: {chunk_size}字节, 间隔: {time_since_last:.3f}秒, 时间: {datetime.now().isoformat()}")
             last_chunk_time = current_time
 
             # 检查是否为流结束标记

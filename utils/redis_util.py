@@ -289,7 +289,7 @@ class RedisUtils:
             print(f"Error getting list: {str(e)}")
             return []
 
-    def set_add(self, name: str, *values: Any, expire_seconds: Optional[int] = None) -> Optional[int]:
+    def set_add(self, name: str, value: Any, expire_seconds: Optional[int] = None) -> Optional[int]:
         """
         向集合添加元素
 
@@ -304,29 +304,13 @@ class RedisUtils:
         import logging
         logger = logging.getLogger(__name__)
 
-        if not values:
-            logger.warning(f"尝试向集合 {name} 添加空值")
-            return 0
-
         max_retries = 3
         retry_delay = 0.5  # 秒
 
         for attempt in range(max_retries):
             try:
-                # 处理可能为 None 的值
-                valid_values = [value for value in values if value is not None]
-                if not valid_values:
-                    logger.warning(f"集合 {name} 的所有值均为 None，跳过添加")
-                    return 0
-
-                # 序列化复杂数据类型
-                processed_values = [
-                    json.dumps(v) if not isinstance(v, (str, int, float, bool)) else v
-                    for v in valid_values
-                ]
-
                 # 执行添加操作
-                result = self.redis_client.sadd(name, *processed_values)
+                result = self.redis_client.sadd(name, value)
 
                 # 设置过期时间
                 if expire_seconds and result > 0:
