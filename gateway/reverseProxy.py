@@ -446,6 +446,7 @@ async def chatgpt_reverse_proxy(request: Request, path: str):
         access_token = request.headers.get('authorization') \
             if 'authorization' in request.headers and request.headers.get("authorization") != "Bearer" \
             else common_utils.get_access_token(share_token)
+        access_token = access_token.replace("Bearer ", "")
         headers.update({"authorization": f"Bearer {access_token}"})
 
         fp = get_fp(access_token).copy()
