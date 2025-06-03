@@ -218,9 +218,8 @@ def get_proxy(share_token: str, fp: dict):
     return proxy_url
 
 
-async def content_generator_with_lock_release(r, share_token, history, lock_key=None):
+async def content_generator_with_lock_release(r, share_token, history, lock_key=None, model=None):
     conversation_id = None
-    model = None
     chunk_count = 0
     chunk_sent_count = 0  # 新增：记录发送到前端的数据块数量
     finish_marker_received = False
@@ -267,9 +266,32 @@ async def content_generator_with_lock_release(r, share_token, history, lock_key=
             # 检查是否为流结束标记
             try:
                 chunk_text = chunk.decode('utf-8', errors='ignore').strip()
+                # print(chunk_text)
                 if chunk_text == "data: [DONE]":
                     finish_marker_received = True
                     logger.info(f"收到流结束标记，总数据块: {chunk_count}, 已发送: {chunk_sent_count}, 总时间: {current_time - start_time:.3f}秒")
+
+                    if model is not None:
+                        logger.info(f"获取到模型: {model}")
+                        model_usage = redis_utils.hash_get("usage:" + username, model)
+                        real_usage = 0 if model_usage is None else int(model_usage)
+
+                        if is_true(gpt_reset_every_day):
+                            redis_result = redis_utils.hash_set("usage:" + username, {model: real_usage + 1})
+                            if not redis_result:
+                                logger.error(f"保存模型使用量失败: {model}")
+                        else:
+                            # 计算到第二天0点的秒数
+                            now = datetime.now()
+                            tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0,
+                                                                         microsecond=0)
+                            expire_seconds = int((tomorrow - now).total_seconds())
+                            redis_result = redis_utils.hash_set("usage:" + username, {model: real_usage + 1},
+                                                                expire_seconds=expire_seconds)
+                            if not redis_result:
+                                logger.error(f"保存模型使用量(带过期时间)失败: {model}")
+                    else:
+                        logger.warning("从响应数据中未获取到模型信息")
                     # 收到结束标记立即释放锁
                     if lock_key:
                         redis_utils.delete(lock_key)
@@ -298,6 +320,7 @@ async def content_generator_with_lock_release(r, share_token, history, lock_key=
             try:
                 if history and (not conversation_id or not model):
                     chat_chunk = chunk.decode('utf-8', errors='ignore')
+                    # print(chat_chunk)
                     if chat_chunk.startswith("data: {"):
                         if "\n\nevent: delta" in chat_chunk:
                             index = chat_chunk.find("\n\nevent: delta")
@@ -316,48 +339,14 @@ async def content_generator_with_lock_release(r, share_token, history, lock_key=
                                     if result:
                                         logger.info(f"获取到并成功保存 conversation_id: {conversation_id}")
                                     else:
-                                        logger.error(f"获取到 conversation_id: {conversation_id}，但保存到 Redis 失败")
+                                        logger.error(f"获取到 conversation_id: {conversation_id}")
                                 else:
                                     logger.warning("从响应数据中未获取到 conversation_id")
                             except json.JSONDecodeError as je:
                                 logger.error(f"解析JSON数据失败: {je}, 原始数据: {chunk_data[:100]}...")
                             except Exception as e:
                                 logger.error(f"处理 conversation_id 时出错: {str(e)}")
-                        if model is None:
-                            try:
-                                chunk_json = json.loads(chunk_data)
-                                message_data = chunk_json.get("message", {})
-                                if not isinstance(message_data, dict):
-                                    message_data = {}
-                                metadata = message_data.get("metadata", {})
-                                if not isinstance(metadata, dict):
-                                    metadata = {}
-                                model = metadata.get("model_slug")
-                                if model is not None:
-                                    logger.info(f"获取到模型: {model}")
-                                    model_usage = redis_utils.hash_get("usage:" + username, model)
-                                    real_usage = 0 if model_usage is None else int(model_usage)
-                                    
-                                    if is_true(gpt_reset_every_day):
-                                        redis_result = redis_utils.hash_set("usage:" + username, {model: real_usage + 1})
-                                        if not redis_result:
-                                            logger.error(f"保存模型使用量失败: {model}")
-                                    else:
-                                        # 计算到第二天0点的秒数
-                                        now = datetime.now()
-                                        tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0,
-                                                                                     microsecond=0)
-                                        expire_seconds = int((tomorrow - now).total_seconds())
-                                        redis_result = redis_utils.hash_set("usage:" + username, {model: real_usage + 1},
-                                                            expire_seconds=expire_seconds)
-                                        if not redis_result:
-                                            logger.error(f"保存模型使用量(带过期时间)失败: {model}")
-                                else:
-                                    logger.warning("从响应数据中未获取到模型信息")
-                            except json.JSONDecodeError as je:
-                                logger.error(f"解析JSON数据失败: {je}, 原始数据: {chunk_data[:100]}...")
-                            except Exception as e:
-                                logger.error(f"处理模型信息时出错: {str(e)}")
+
             except Exception as e:
                 logger.error(f"处理数据块出错: {str(e)}")
 
@@ -726,7 +715,8 @@ async def chatgpt_reverse_proxy(request: Request, path: str):
 
                 # 创建自定义的内容生成器，以便在流结束时释放锁
                 if need_release_lock:
-                    generator = content_generator_with_lock_release(r, share_token, history, lock_key)
+                    model = req_json.get("model")
+                    generator = content_generator_with_lock_release(r, share_token, history, lock_key,model=model)
                 else:
                     generator = content_generator(r, share_token, history)
 
