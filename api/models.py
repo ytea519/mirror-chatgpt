@@ -13,7 +13,6 @@ model_proxy = {
     "o1": "o1-2024-12-18",
     "o3-mini": "o3-mini-2025-01-31",
     "o3-mini-high": "o3-mini-high-2025-01-31",
-    "o3-pro": "o3-pro-2025-01-31",
     "claude-3-opus": "claude-3-opus-20240229",
     "claude-3-sonnet": "claude-3-sonnet-20240229",
     "claude-3-haiku": "claude-3-haiku-20240307",
