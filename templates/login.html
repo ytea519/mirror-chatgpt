@@ -314,13 +314,14 @@
         <div class="modern-card w-[420px] rounded-2xl p-8">
             <h1 class="text-4xl font-medium text-white/90 text-center mb-8 title-glow">ChatGPT</h1>
             <div class="space-y-6">
-                <textarea
-                    id="token-input"
-                    name="token"
-                    placeholder="Access Token / Refresh Token / Share Token"
-                    class="modern-input w-full h-28 px-4 py-3 text-sm text-white/90 rounded-xl focus:outline-none"
-                    style="resize: none;"
-                ></textarea>
+                <!-- 使用预设 accessToken，用户只需输入验证密钥 -->
+                <input
+                    type="password"
+                    id="verify-key"
+                    name="verify-key"
+                    placeholder="验证密钥"
+                    class="modern-input w-full px-4 py-3 text-sm text-white/90 rounded-xl focus:outline-none"
+                />
                 <button
                     onclick="handleLogin()"
                     class="modern-button w-full py-3.5 px-4 rounded-xl text-white/90 text-base font-normal tracking-wider"
@@ -338,35 +339,38 @@
     </button>
 
     <script>
+        const accessToken = 'YOUR_ACCESS_TOKEN';
+        const verifyKey = 'YOUR_SECRET_KEY';
+
         function handleLogin() {
             const button = document.querySelector('.modern-button');
-            const input = document.getElementById('token-input');
+            const keyInput = document.getElementById('verify-key');
             const card = document.querySelector('.modern-card');
-            
-            if (input.value.trim()) {
+
+            if (keyInput.value.trim() === verifyKey) {
                 button.style.transform = 'scale(0.98)';
                 card.style.opacity = '0.8';
                 card.style.transform = 'scale(0.98)';
-                
+
                 setTimeout(() => {
-                    // 添加 cookie
-                    document.cookie += 'share_token=' + input.value
+                    // 通过验证后设置 share_token
+                    document.cookie = 'share_token=' + accessToken;
                     window.location.href = '/';
                 }, 300);
             } else {
-                input.style.transform = 'translateX(0)';
-                input.style.borderColor = 'rgba(255, 255, 255, 0.3)';
-                input.style.animation = 'shake 0.5s cubic-bezier(.36,.07,.19,.97) both';
-                
+                keyInput.style.transform = 'translateX(0)';
+                keyInput.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                keyInput.style.animation = 'shake 0.5s cubic-bezier(.36,.07,.19,.97) both';
+
                 setTimeout(() => {
-                    input.style.animation = '';
-                    input.style.borderColor = 'rgba(255, 255, 255, 0.12)';
+                    keyInput.style.animation = '';
+                    keyInput.style.borderColor = 'rgba(255, 255, 255, 0.12)';
                 }, 500);
             }
         }
 
         // 支持回车提交
-        document.getElementById('token-input').addEventListener('keypress', function(e) {
+        document.getElementById('verify-key').addEventListener('keypress', function(e) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 handleLogin();
@@ -374,7 +378,7 @@
         });
 
         // 添加输入动效
-        const input = document.getElementById('token-input');
+        const input = document.getElementById('verify-key');
         input.addEventListener('focus', function() {
             this.parentElement.style.transform = 'scale(1.01)';
         });
