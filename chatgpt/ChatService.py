@@ -151,8 +151,6 @@ class ChatService:
             self.req_model = "o3-mini-low"
         elif "o3-mini" in self.origin_model:
             self.req_model = "o3-mini"
-        elif "o3-pro" in self.origin_model:
-            self.req_model = "o3-pro"
         elif "o3" in self.origin_model:
             self.req_model = "o3"
         elif "o1-preview" in self.origin_model:
